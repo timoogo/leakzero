@@ -1,0 +1,28 @@
+# Engine: src/core/scanner.ts, src/detectors/, src/maskers/text.ts and overlay.ts.
+# Read by content scripts through PROTECTION_FIELDS (src/shared/settings.ts): keep these ids.
+id: phone
+title: Numéros de téléphone
+description: Masquage des numéros détectés
+icon: phone
+order: 10
+
+settings:
+  - id: enabled
+    type: switch
+    label: Masquer les numéros
+    description: Remplace les téléphones par des astérisques floutés et masque toute suite de 3 chiffres ou plus (hors dates, heures, âges, prix).
+    default: false
+    primary: true
+
+  - id: reinforced
+    type: switch
+    label: Mode renforcé
+    description: Ajoute au flou un rectangle noir « 🛡 Numéro masqué ».
+    default: false
+    disabledWhen:
+      setting: enabled
+      equals: false
+
+advanced:
+  title: Rendu des numéros
+  component: AdvancedSettings

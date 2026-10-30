@@ -1,0 +1,15 @@
+# Engine: src/maskers/media.ts (stylesheet and Bitmoji exception).
+# Read by content scripts through PROTECTION_FIELDS (src/shared/settings.ts): keep these ids.
+id: media
+title: Images et vidéos
+description: Protection des contenus visuels
+icon: image
+order: 20
+
+settings:
+  - id: enabled
+    type: switch
+    label: Masquer les médias
+    description: Recouvre images et vidéos d’un rectangle opaque (avatars Bitmoji exceptés).
+    default: false
+    primary: true
