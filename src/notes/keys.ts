@@ -9,7 +9,10 @@ export const NotesKeys = {
   notePrefix: 'notes:note:',
   /** Manual order of the list (note ids); absent while sorted by recent activity. */
   order: 'notes:order',
-  /** Last Snapchat conversation detected: `{ conversationId, name, detectedAt }`. */
+  /**
+   * Last Snapchat conversation detected, kept until another one is: `{ conversationId, name, tabId,
+   * detectedAt }`. chrome.storage.local is per profile, so profiles never share it.
+   */
   active: 'notes:active',
   /** Position and size of the Notes window: `{ left, top, width, height }`. */
   window: 'notes:window',

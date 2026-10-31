@@ -35,8 +35,11 @@ export type Note = z.infer<typeof noteSchema>;
 export type Conversation = z.infer<typeof conversationSchema>;
 
 export interface ActiveConversation {
+  /** Snapchat's UUID: the identity of the conversation, never its name. */
   conversationId: string;
   name: string;
+  /** Tab it was detected in. */
+  tabId: number | null;
   detectedAt: number;
 }
 
@@ -62,7 +65,13 @@ export function readOrder(items: Record<string, unknown>): string[] | null {
 }
 
 export function activeConversation(items: Record<string, unknown>): ActiveConversation | null {
-  const parsed = z.object({ conversationId: z.string().regex(CONVERSATION_ID), name: z.string(), detectedAt: timestamp }).safeParse(items[NotesKeys.active]);
+  const parsed = z.object({
+    conversationId: z.string().regex(CONVERSATION_ID),
+    name: z.string(),
+    // Absent from records written before it was added.
+    tabId: z.number().int().nullable().default(null),
+    detectedAt: timestamp,
+  }).safeParse(items[NotesKeys.active]);
   return parsed.success ? parsed.data : null;
 }
 

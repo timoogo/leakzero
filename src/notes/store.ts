@@ -38,13 +38,13 @@ export function createNotesStore(api: typeof chrome = chrome) {
      * Records the conversation open on Snapchat and creates its (empty) note the first time. A note in
      * the trash is left there: the Notes page offers to restore it.
      */
-    detect: (conversation: Conversation) =>
+    detect: (conversation: Conversation, tabId: number | null) =>
       exclusive(async () => {
         const now = Date.now();
         const note = readNotes(await local.get(null)).find((candidate) => candidate.conversationId === conversation.id);
         // A name missing from the page never replaces a known one.
         const name = conversation.name ?? note?.name ?? unnamedConversation(conversation.id);
-        const patch: Record<string, unknown> = { [NotesKeys.active]: { conversationId: conversation.id, name, detectedAt: now } };
+        const patch: Record<string, unknown> = { [NotesKeys.active]: { conversationId: conversation.id, name, tabId, detectedAt: now } };
         if (!note) {
           const id = crypto.randomUUID();
           patch[noteKey(id)] = {

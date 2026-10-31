@@ -25,8 +25,8 @@ async function command(message: Record<string, unknown>) {
 }
 
 /** What the Snapchat content script reports. */
-async function detect(id: string, name: string, url = `${SNAP}/${id}`) {
-  storage.setSender({ url, tab: { id: 7 } as chrome.tabs.Tab });
+async function detect(id: string, name: string, url = `${SNAP}/${id}`, tabId = 7) {
+  storage.setSender({ url, tab: { id: tabId } as chrome.tabs.Tab });
   return storage.api.runtime.sendMessage({ type: 'notes:conversation', conversation: { id, name } }) as Promise<{ ok: boolean; error?: string }>;
 }
 
@@ -71,6 +71,23 @@ describe('conversation detection', () => {
     start(stored);
     await detect(ALICE, 'Alice');
     expect(notes()).toHaveLength(1);
+  });
+
+  it('remembers the last conversation and the tab it came from, durably', async () => {
+    await detect(ALICE, 'Alice', `${SNAP}/${ALICE}`, 12);
+    expect(storage.stored[NotesKeys.active]).toEqual({ conversationId: ALICE, name: 'Alice', tabId: 12, detectedAt: expect.any(Number) });
+    // Service worker restarted: the record is in storage, not in memory.
+    start(structuredClone(storage.stored));
+    expect(activeConversation(storage.stored)).toMatchObject({ conversationId: ALICE, tabId: 12 });
+  });
+
+  it('replaces it only with another valid conversation, from any tab, never by name', async () => {
+    await detect(ALICE, 'Alice', `${SNAP}/${ALICE}`, 1);
+    await detect(ALICE_2, 'Alice', `${SNAP}/${ALICE_2}`, 2);
+    expect(activeConversation(storage.stored)).toMatchObject({ conversationId: ALICE_2, tabId: 2 });
+    expect(await detect('pas-un-uuid', 'Bob')).toMatchObject({ ok: false });
+    expect(activeConversation(storage.stored)).toMatchObject({ conversationId: ALICE_2 });
+    expect(notes().map((note) => note.conversationId).sort()).toEqual([ALICE, ALICE_2]);
   });
 
   it('ignores detections while the module is disabled', async () => {

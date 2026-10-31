@@ -66,7 +66,7 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
       const command = contentCommand.safeParse(message);
       if (!command.success) throw new NotesStoreError('Conversation invalide.');
       await requireEnabled();
-      return store.detect(command.data.conversation);
+      return store.detect(command.data.conversation, sender.tab?.id ?? null);
     }
     const parsed = pageCommand.safeParse(message);
     if (!parsed.success) throw new NotesStoreError('Commande invalide.');

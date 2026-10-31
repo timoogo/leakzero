@@ -114,6 +114,22 @@ describe('conversation tracking', () => {
     expect(reported()).toEqual([{ id: ALICE, name: null }, { id: ALICE, name: 'Alice' }]);
   });
 
+  it('keeps the last conversation when Snapchat hides it (focus lost, header removed, back to /web)', async () => {
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('blur'));
+    document.querySelector('main header')!.remove();
+    await settle();
+    history.pushState({}, '', '/web');
+    document.body.innerHTML = '<main></main>';
+    await settle();
+    delete (document as { visibilityState?: string }).visibilityState;
+    expect(reported()).toEqual([{ id: ALICE, name: 'Alice' }]);
+  });
+
   it('reports again when the tab comes back to the front (several Snapchat tabs)', async () => {
     openConversation(ALICE, 'Alice');
     stop = startConversationTracking(document, storage.api);

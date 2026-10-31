@@ -36,6 +36,7 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
   let enabled = false;
   let stopped = false;
   let last: string | undefined;
+  let lastConversation: Conversation | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const observer = new MutationObserver(() => schedule());
 
@@ -53,9 +54,14 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
     // Extension reloaded or updated: the new version's script takes over (see background/index.ts).
     if (orphaned()) return stop();
     const conversation = readConversation(doc);
+    // Snapchat may hide the conversation (window left, popup opened…): the last one stays the active
+    // one until another valid conversation is open; a name that disappears is not reported either.
+    if (!conversation) return;
+    if (conversation.name === null && lastConversation?.id === conversation.id) return;
     const key = JSON.stringify(conversation);
-    if (!conversation || key === last) return;
+    if (key === last) return;
     last = key;
+    lastConversation = conversation;
     api.runtime.sendMessage({ type: 'notes:conversation', conversation }).catch(() => {
       if (orphaned()) stop();
       else last = undefined;
