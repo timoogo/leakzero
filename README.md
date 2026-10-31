@@ -1,5 +1,8 @@
 # LeakZero
 
+[![CI](https://github.com/timoogo/leakzero/actions/workflows/ci.yml/badge.svg)](https://github.com/timoogo/leakzero/actions/workflows/ci.yml)
+
+
 Extension Chrome (Manifest V3) qui réduit les risques de fuite d'informations pendant un livestream :
 masquage des numéros de téléphone dans le texte et des images/vidéos, sur n'importe quelle page web.
 
