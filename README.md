@@ -4,13 +4,16 @@
 
 
 Extension Chrome (Manifest V3) qui réduit les risques de fuite d'informations pendant un livestream :
-masquage des numéros de téléphone dans le texte et des images/vidéos, sur n'importe quelle page web.
+masquage des numéros de téléphone dans le texte et des images/vidéos, sur n'importe quelle page web,
+et module **Notes** : une fiche par conversation Snapchat Web, dans une fenêtre séparée
+(voir [docs/notes.md](docs/notes.md)).
 
 > LeakZero est une protection « au mieux ». Elle **ne garantit pas** l'absence de fuite :
 > vérifiez toujours votre aperçu avant de diffuser (voir [Limitations](#limitations)).
 
 ## Stack
-React 19, TypeScript, Vite, CRXJS, Tailwind CSS v4, shadcn/ui (Radix), Zod, libphonenumber-js, Vitest (+ jsdom).
+React 19, TypeScript, Vite, CRXJS, Tailwind CSS v4, shadcn/ui (Radix), Zod, libphonenumber-js, Tiptap et fflate
+(module Notes), Vitest (+ jsdom).
 
 ## Démarrer
 ```bash
@@ -101,18 +104,23 @@ Les onglets déjà ouverts sont protégés dès l'installation ou la mise à jou
   bouton « Enregistrer ») ; chaque content script écoute `chrome.storage.onChanged`, donc tous les onglets
   se mettent à jour immédiatement (voir [Modules](#modules) et [Stockage et migration](#stockage-et-migration)).
 - **Confidentialité** : aucun contenu analysé n'est stocké, journalisé ni transmis.
+- **Notes** : seul module qui ne protège pas ; il ne lit que l'identifiant (URL) et le nom de la
+  conversation Snapchat ouverte, jamais les messages. Détails dans [docs/notes.md](docs/notes.md).
 
 ## Permissions
 - `storage` : réglages.
 - `scripting` + accès hôte `<all_urls>` (les mêmes sites que le content script, donc pas
   d'avertissement supplémentaire) : injection du content script dans les onglets déjà ouverts à
   l'installation et aux mises à jour.
-- Un service worker, qui ne sert qu'à l'installation et aux mises à jour : initialiser/migrer le stockage
+- Un service worker, qui sert à l'installation et aux mises à jour (et aux commandes du module Notes) : initialiser/migrer le stockage
   (seul le navigateur sait distinguer une nouvelle installation d'une installation existante dont les
   réglages n'ont jamais été enregistrés), puis injecter la nouvelle version dans les onglets ouverts.
 - Content script sur `<all_urls>`, `all_frames`, `match_about_blank` : nécessaire pour un fonctionnement
   générique (Chrome affiche donc l'avertissement « lire et modifier toutes vos données »).
 - Aucune ressource web-accessible.
+- Module Notes : aucune permission supplémentaire. Un second content script limité à
+  `https://www.snapchat.com/web*` ; fenêtre (`chrome.windows`, sans permission) ; exports par
+  téléchargement de lien (pas de permission `downloads`).
 
 ## Architecture
 - `src/core/observer.ts` : `MutationObserver`, regroupement des mutations, anti-boucle.
@@ -129,7 +137,8 @@ Les onglets déjà ouverts sont protégés dès l'installation ou la mise à jou
 - `src/content/index.ts` : point d'entrée dans la page ; `src/content/protection.ts` : démarrage,
   lecture des réglages, relève d'une instance orpheline.
 - `src/background/index.ts` : service worker (`onInstalled`) : initialisation/migration du stockage,
-  puis injection dans les onglets ouverts.
+  puis injection de chaque content script dans les onglets ouverts que ses `matches` couvrent ; commandes
+  du module Notes.
 - `src/modules/` : modules de protection déclarés en YAML (voir [Modules](#modules)) :
   - `<id>/module.yaml` : déclaration ; `<id>/components/*.tsx` : composants React facultatifs ;
   - `schema.ts` : schéma Zod et validations croisées ; `registry.ts` : découverte, validation, tri ;
@@ -142,6 +151,8 @@ Les onglets déjà ouverts sont protégés dès l'installation ou la mise à jou
   `Slider`, `Switch`, `Textarea`).
 - `src/shared/keys.ts` : clés de stockage ; `settings.ts` : lecture des réglages par les content scripts ;
   `state.ts` : valeurs des modules, initialisation et migration.
+- `src/notes/`, `src/content/notes.ts` : module Notes (service worker, détection Snapchat, fenêtre
+  `src/notes/page/`) ; voir [docs/notes.md](docs/notes.md#architecture).
 - `vite.config.ts` : plugin `leakzero-module-yaml` (YAML → JSON, validation au build, icônes utilisées).
 
 ## Popup
@@ -151,7 +162,9 @@ Les onglets déjà ouverts sont protégés dès l'installation ou la mise à jou
   « Nouveau » éventuel, indicateur informatif `Actif`/`Inactif` et chevron. Tous les réglages, y compris
   l'interrupteur principal, sont à l'intérieur. Les sections ouvertes sont mémorisées (identifiants de
   modules, jamais d'indices) et restaurées à chaque ouverture du popup et au retour des paramètres avancés.
-- **« Aucune protection active »** : avertissement discret, non bloquant, tant qu'aucun module n'est actif.
+- **« Aucune protection active »** : avertissement discret, non bloquant, tant qu'aucune protection
+  (numéros, médias) n'est active ; le module Notes n'en est pas une.
+- **Notes** : bouton « Ouvrir Notes » dans son accordion quand le module est activé.
 - **Recherche** : affichée à partir de 5 modules ; filtre par titre et description (sans casse ni accents),
   sans toucher aux réglages ni aux sections mémorisées, en conservant l'ordre.
 - **Accueil** : affiché à la première utilisation (nouvelle installation) ; « Commencer » le mémorise.
