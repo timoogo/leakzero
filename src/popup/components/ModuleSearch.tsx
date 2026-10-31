@@ -1,13 +1,10 @@
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { normalizeSearch as normalize } from '@/lib/utils';
 import type { ModuleDefinition } from '../../modules/registry';
 
 /** The search field appears from this many modules. */
 export const SEARCH_THRESHOLD = 5;
-
-function normalize(text: string): string {
-  return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-}
 
 /** Modules whose title or description contains `query` (case and accent insensitive), order preserved. */
 export function filterModules<M extends Pick<ModuleDefinition, 'title' | 'description'>>(modules: readonly M[], query: string): M[] {

@@ -56,6 +56,8 @@ function moduleYaml(): Plugin {
 
 export default defineConfig({
   plugins: [moduleYaml(), react(), tailwindcss(), crx({ manifest, contentScripts: { standaloneFiles: ['src/content/index.ts', 'src/content/notes.ts'] } })],
+  // The Notes page is opened by the service worker (src/notes/window.ts), not named in the manifest.
+  build: { rollupOptions: { input: { notes: 'src/notes/index.html' } } },
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   test: { environment: 'node', setupFiles: ['tests/setup.ts'] },
 });

@@ -133,6 +133,8 @@ export function fakeChrome(initial: Record<string, unknown> = {}) {
       return structuredClone(win);
     }),
     get: vi.fn(async (id: number) => structuredClone(findWindow(id))),
+    /** The window of the calling page: the last one opened, in these tests. */
+    getCurrent: vi.fn(async () => structuredClone(findWindow(Math.max(...windows.keys())))),
     remove: vi.fn(async (id: number) => {
       findWindow(id);
       windows.delete(id);
