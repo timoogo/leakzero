@@ -29,10 +29,16 @@ Position et taille sont reprises à la réouverture, y compris sur un autre écr
   quand le focus en sort ;
 - après un choix manuel dans la liste : suivi suspendu jusqu'à **Reprendre le suivi**.
 
-**Liste** : recherche par nom de conversation (jamais dans le contenu), tri par activité récente
+**Liste** : recherche par titre personnalisé ou nom de conversation (jamais dans le contenu), tri par activité récente
 (dernière ouverture sur Snapchat ou dernière modification), réorganisation par glisser-déposer ou
 `Alt+↑`/`Alt+↓` (ordre conservé), **Trier par activité récente** pour revenir au tri par défaut.
-Le nom suit Snapchat ; il ne se modifie pas à la main, et une fiche ne se crée pas à la main.
+Une fiche ne se crée pas à la main.
+
+**Renommer** : le crayon à côté du titre donne à la fiche un titre personnalisé (Entrée valide, Échap
+annule), affiché à la place du nom Snapchat dans la liste, la fenêtre, la recherche et les exports. Le
+nom Snapchat continue d'être suivi en dessous (« Nom Snapchat : … ») sans jamais remplacer le titre
+personnalisé ; **Revenir au nom Snapchat** (ou un titre vide) le retire. L'UUID de la conversation ne
+change jamais.
 
 **Corbeille** : **Supprimer** y envoie la fiche, sans limite de durée. **Restaurer** ou **Supprimer
 définitivement** (confirmé). Une conversation de la corbeille rouverte sur Snapchat n'est ni restaurée
@@ -81,7 +87,9 @@ Chaque commande est validée (Zod) avant exécution.
 
 **Stockage.** `notes:note:<id>` (une clé par fiche), `notes:order` (ordre manuel, absent = tri récent),
 `notes:active` (dernière conversation détectée), `notes:window` (position et taille, écrite par la page).
-L'identifiant d'une fiche est généré par LeakZero (`crypto.randomUUID`) ; `conversationId` est celui de
+Une fiche porte `name` (nom détecté, suit Snapchat) et `customName` (titre personnalisé ou `null`,
+absent des fiches et archives antérieures) ; seule une page de l'extension peut le modifier
+(`notes:rename`). L'identifiant d'une fiche est généré par LeakZero (`crypto.randomUUID`) ; `conversationId` est celui de
 Snapchat. Une conversation a au plus une fiche. Les mises à jour de l'extension ne touchent pas ces clés.
 
 **Détection.** L'identifiant vient uniquement de l'URL `/web/<uuid>` : sans UUID, aucune fiche n'est

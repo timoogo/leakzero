@@ -11,7 +11,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import type { Note } from '../model';
+import { displayName, type Note } from '../model';
 
 interface Props {
   notes: readonly Note[];
@@ -26,7 +26,7 @@ export function TrashList({ notes, onRestore, onPurge }: Props) {
     <ul className="space-y-1" aria-label="Corbeille">
       {notes.map((note) => (
         <li key={note.id} data-note={note.id} className="rounded-md border px-2 py-1.5">
-          <p data-note-name className="truncate text-sm">{note.name}</p>
+          <p data-note-name className="truncate text-sm">{displayName(note)}</p>
           <p className="text-[11px] text-muted-foreground">Supprimée le {new Date(note.trashedAt!).toLocaleString('fr-FR')}</p>
           <div className="mt-1 flex gap-1">
             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onRestore(note.id)}><RotateCcw /> Restaurer</Button>
@@ -36,7 +36,7 @@ export function TrashList({ notes, onRestore, onPurge }: Props) {
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Supprimer « {note.name} » pour toujours ?</AlertDialogTitle>
+                  <AlertDialogTitle>Supprimer « {displayName(note)} » pour toujours ?</AlertDialogTitle>
                   <AlertDialogDescription>Ses notes seront effacées de cet ordinateur. Exportez-les avant si vous voulez les garder.</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

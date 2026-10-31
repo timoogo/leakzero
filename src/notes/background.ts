@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { conversationSchema, MAX_HTML_LENGTH, noteIdSchema, noteSchema, NOTES_ENABLED } from './model';
+import { conversationSchema, customNameSchema, MAX_HTML_LENGTH, noteIdSchema, noteSchema, NOTES_ENABLED } from './model';
 import type { NotesResponse } from './messages';
 import { createNotesStore, NotesStoreError } from './store';
 import { closeNotesWindow } from './window';
@@ -15,6 +15,7 @@ const contentCommand = z.strictObject({ type: z.literal('notes:conversation'), c
 /** Sent by the extension's own pages: the popup and the Notes page. */
 const pageCommand = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('notes:save'), ...id.shape, html: z.string().max(MAX_HTML_LENGTH) }),
+  z.strictObject({ type: z.literal('notes:rename'), ...id.shape, customName: customNameSchema.nullable() }),
   z.strictObject({ type: z.literal('notes:trash'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:restore'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:purge'), ...id.shape }),
@@ -76,6 +77,7 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
     // Edits stay allowed while disabled: a save still pending when the module is turned off is kept.
     switch (command.type) {
       case 'notes:save': return store.save(command.id, command.html);
+      case 'notes:rename': return store.rename(command.id, command.customName);
       case 'notes:trash': return store.trash(command.id);
       case 'notes:restore': return store.restore(command.id);
       case 'notes:purge': return store.purge(command.id);

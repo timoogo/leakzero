@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Note } from '../model';
+import { displayName, type Note } from '../model';
 
 interface Props {
   notes: readonly Note[];
@@ -54,7 +54,7 @@ export function NoteList({ notes, selectedId, activeId, reorderable, onSelect, o
               onMove(note.id, index + (event.key === 'ArrowUp' ? -1 : 1));
             }}
           >
-            <span data-note-name className={cn('min-w-0 flex-1 truncate', note.id === selectedId && 'font-medium')}>{note.name}</span>
+            <span data-note-name className={cn('min-w-0 flex-1 truncate', note.id === selectedId && 'font-medium')}>{displayName(note)}</span>
             {note.id === activeId && (
               <span className="flex shrink-0 items-center gap-1 text-[10px] text-primary" title="Conversation ouverte sur Snapchat">
                 <span className="size-1.5 rounded-full bg-primary" aria-hidden /> ouverte

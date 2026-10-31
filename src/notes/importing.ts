@@ -55,7 +55,7 @@ export function applyImport(
         const id = newId();
         const conversationId = note.conversationId && !followed.has(note.conversationId) ? note.conversationId : null;
         if (conversationId) followed.add(conversationId);
-        patch[noteKey(id)] = { ...note, id, conversationId, name: copyName(note.name) };
+        patch[noteKey(id)] = { ...note, id, conversationId, name: copyName(note.name), customName: note.customName && copyName(note.customName) };
         summary.added++;
         break;
       }

@@ -7,7 +7,7 @@ import { noteDocument, noteFileName, noteText } from '../archive';
 import { follow, initialFollow } from '../follow';
 import { filterByName, listedNotes, moveNote, trashedNotes } from '../list';
 import { sendNotesCommand } from '../messages';
-import { activeConversation, readNotes, readOrder } from '../model';
+import { activeConversation, displayName, readNotes, readOrder } from '../model';
 import { trackWindowBounds } from '../window';
 import { ArchiveActions } from './ArchiveActions';
 import { downloadFile } from './download';
@@ -132,7 +132,7 @@ export default function NotesApp() {
         )}
         {view === 'notes' && active && activeNote && activeNote.trashedAt !== null && (
           <div role="status" className="m-3 mb-0 flex flex-wrap items-center gap-2 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
-            <span className="flex-1">La fiche de « {activeNote.name} » est dans la corbeille.</span>
+            <span className="flex-1">La fiche de « {displayName(activeNote)} » est dans la corbeille.</span>
             <Button variant="outline" size="sm" className="h-7" onClick={() => void run({ type: 'notes:restore', id: activeNote.id })}>Restaurer la fiche</Button>
           </div>
         )}

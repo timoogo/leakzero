@@ -9,7 +9,7 @@ const ALICE = '0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
 const BOB = '2c1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
 
 function note(id: string, extra: Partial<Note> = {}): Note {
-  return { id, conversationId: null, name: id, html: '', createdAt: 1, updatedAt: 2, lastSeenAt: 3, trashedAt: null, ...extra };
+  return { id, conversationId: null, name: id, html: '', createdAt: 1, updatedAt: 2, lastSeenAt: 3, trashedAt: null, customName: null, ...extra };
 }
 
 const alice = note('id-alice', { conversationId: ALICE, name: 'Alice <3', html: '<h2>Sujet</h2><p><strong>gras</strong></p>' });
@@ -58,7 +58,7 @@ describe('ZIP export', () => {
     expect(manifest).toMatchObject({ format: 'leakzero-notes', version: 1, includesTrash: false });
     expect(manifest.notes.map((entry: { id: string }) => entry.id)).toEqual(['id-alice', 'id-bob']);
     expect(manifest.notes[0]).toEqual({
-      id: 'id-alice', conversationId: ALICE, name: 'Alice <3', createdAt: 1, updatedAt: 2, lastSeenAt: 3, trashedAt: null,
+      id: 'id-alice', conversationId: ALICE, name: 'Alice <3', customName: null, createdAt: 1, updatedAt: 2, lastSeenAt: 3, trashedAt: null,
       html: 'html/alice-3-id-alice.html', txt: 'txt/alice-3-id-alice.txt',
     });
     expect(content['html/alice-3-id-alice.html']).toContain('<h2>Sujet</h2>');

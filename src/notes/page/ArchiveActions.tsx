@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { exportArchive, parseArchive } from '../archive';
 import { planImport, type ImportItem, type ImportResolution, type ImportSummary } from '../importing';
 import { sendNotesCommand } from '../messages';
-import type { Note } from '../model';
+import { displayName, type Note } from '../model';
 import { downloadFile } from './download';
 
 const CHOICES: { value: ImportResolution; label: string }[] = [
@@ -147,10 +147,10 @@ export function ArchiveActions({ notes, onError, onDone }: Props) {
                 {conflicts.map(({ note, conflict }) => (
                   <li key={note.id} className="space-y-1">
                     <p className="truncate">
-                      {note.name}
-                      <span className="text-xs text-muted-foreground"> — existante : {conflict!.name}{conflict!.trashedAt !== null && ' (corbeille)'}</span>
+                      {displayName(note)}
+                      <span className="text-xs text-muted-foreground"> — existante : {displayName(conflict!)}{conflict!.trashedAt !== null && ' (corbeille)'}</span>
                     </p>
-                    <ChoiceGroup label={note.name} value={overrides[note.id] ?? global} onChange={(value) => setOverrides({ ...overrides, [note.id]: value })} />
+                    <ChoiceGroup label={displayName(note)} value={overrides[note.id] ?? global} onChange={(value) => setOverrides({ ...overrides, [note.id]: value })} />
                   </li>
                 ))}
               </ul>

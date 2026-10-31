@@ -48,7 +48,7 @@ export function createNotesStore(api: typeof chrome = chrome) {
         if (!note) {
           const id = crypto.randomUUID();
           patch[noteKey(id)] = {
-            id, conversationId: conversation.id, name, html: '', createdAt: now, updatedAt: now, lastSeenAt: now, trashedAt: null,
+            id, conversationId: conversation.id, name, customName: null, html: '', createdAt: now, updatedAt: now, lastSeenAt: now, trashedAt: null,
           } satisfies Note;
         } else if (note.trashedAt === null) {
           patch[noteKey(note.id)] = { ...note, name, lastSeenAt: now } satisfies Note;
@@ -56,6 +56,8 @@ export function createNotesStore(api: typeof chrome = chrome) {
         await local.set(patch);
       }),
 
+    /** `null` goes back to the name detected on Snapchat. */
+    rename: (id: string, customName: string | null) => update(id, () => ({ customName })),
     save: (id: string, html: string) => update(id, () => ({ html, updatedAt: Date.now() })),
     trash: (id: string) => update(id, () => ({ trashedAt: Date.now() })),
     restore: (id: string) => update(id, () => ({ trashedAt: null })),

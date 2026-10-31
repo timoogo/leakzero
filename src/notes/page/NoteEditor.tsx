@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
-import { Bold, Heading2, Heading3, Italic, Link2, List, ListOrdered, Underline } from 'lucide-react';
+import { Bold, Heading2, Heading3, Italic, Link2, List, ListOrdered, Pencil, Undo2, Underline } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { createAutosave, type SaveStatus } from '../autosave';
 import { linkTarget, noteExtensions } from '../content';
 import { sendNotesCommand } from '../messages';
-import type { Note } from '../model';
+import { displayName, MAX_NAME_LENGTH, type Note } from '../model';
 
 /** Inactivity before a change is saved. */
 export const SAVE_DELAY_MS = 300;
@@ -18,6 +18,73 @@ const STATUS_LABELS: Record<SaveStatus, string> = {
   saving: 'Sauvegarde…',
   error: 'Erreur de sauvegarde',
 };
+
+/** The note's title, renamed in place; the name detected on Snapchat stays available underneath. */
+function NoteTitle({ note }: { note: Note }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const rename = (customName: string | null) => {
+    setError(null);
+    sendNotesCommand({ type: 'notes:rename', id: note.id, customName }).then(
+      () => setDraft(null),
+      (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)),
+    );
+  };
+
+  if (draft !== null) {
+    return (
+      <form
+        className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          // An empty title, or the detected name itself, means no custom title.
+          const value = draft.trim();
+          rename(value === '' || value === note.name ? null : value);
+        }}
+      >
+        <Input
+          name="customName"
+          aria-label="Titre de la fiche"
+          className="h-8 min-w-0 flex-1"
+          maxLength={MAX_NAME_LENGTH}
+          autoFocus
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              setDraft(null);
+              setError(null);
+            }
+          }}
+        />
+        <Button type="submit" size="sm">Renommer</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => { setDraft(null); setError(null); }}>Annuler</Button>
+        {error && <p role="alert" className="w-full text-xs text-destructive">{error}</p>}
+      </form>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <div className="min-w-0">
+        <h1 data-note-title className="truncate text-lg font-semibold">{displayName(note)}</h1>
+        {note.customName !== null && (
+          <p data-detected-name className="truncate text-xs text-muted-foreground">Nom Snapchat : {note.name}</p>
+        )}
+        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+      </div>
+      <Button variant="ghost" size="icon" aria-label="Renommer la fiche" title="Renommer la fiche" onClick={() => setDraft(displayName(note))}>
+        <Pencil />
+      </Button>
+      {note.customName !== null && (
+        <Button variant="ghost" size="icon" aria-label="Revenir au nom Snapchat" title="Revenir au nom Snapchat" onClick={() => rename(null)}>
+          <Undo2 />
+        </Button>
+      )}
+    </div>
+  );
+}
 
 function ToolButton({ label, active, onClick, children }: { label: string; active: boolean; onClick: () => void; children: ReactNode }) {
   return (
@@ -143,7 +210,7 @@ export function NoteEditor({ note, actions, onEditingChange }: Props) {
   const editor = useEditor({
     extensions: noteExtensions,
     content: note.html,
-    editorProps: { attributes: { class: 'note-content', 'aria-label': `Notes de ${note.name}` } },
+    editorProps: { attributes: { class: 'note-content', 'aria-label': `Notes de ${displayName(note)}` } },
     onUpdate: ({ editor: current }) => autosave.change(current.isEmpty ? '' : current.getHTML()),
   });
 
@@ -168,7 +235,7 @@ export function NoteEditor({ note, actions, onEditingChange }: Props) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-3">
-        <h1 data-note-title className="min-w-0 flex-1 truncate text-lg font-semibold">{note.name}</h1>
+        <NoteTitle key={note.id} note={note} />
         <SaveIndicator status={status} error={error} onRetry={() => void autosave.flush()} />
         <div className="flex items-center gap-1">
           {actions(() => {

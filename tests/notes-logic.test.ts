@@ -5,7 +5,7 @@ import { filterByName, listedNotes, moveNote, trashedNotes } from '../src/notes/
 import type { Note } from '../src/notes/model';
 
 function note(id: string, extra: Partial<Note> = {}): Note {
-  return { id, conversationId: null, name: id, html: '', createdAt: 0, updatedAt: 0, lastSeenAt: 0, trashedAt: null, ...extra };
+  return { id, conversationId: null, name: id, html: '', createdAt: 0, updatedAt: 0, lastSeenAt: 0, trashedAt: null, customName: null, ...extra };
 }
 
 describe('note list', () => {

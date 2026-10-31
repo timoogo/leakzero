@@ -212,7 +212,7 @@ describe('Notes page', () => {
     expect(editor().getHTML()).toContain('href="https://example.com"');
   });
 
-  it('searches by conversation name only', async () => {
+  it('searches by name, never in the content', async () => {
     await detect(ALICE, 'Alice');
     await detect(BOB, 'Bob');
     await render();
@@ -222,6 +222,63 @@ describe('Notes page', () => {
       search.dispatchEvent(new Event('input', { bubbles: true }));
     });
     expect(names()).toEqual(['Alice']);
+  });
+
+  it('renames a note in place, keeps the title when Snapchat syncs, and goes back to the detected name', async () => {
+    await detect(ALICE, 'Alice');
+    await render();
+    await click(button('Renommer la fiche'));
+    const input = document.querySelector<HTMLInputElement>('input[name="customName"]')!;
+    expect(input.value).toBe('Alice');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Alice (travail)');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => input.form!.requestSubmit());
+    await flush();
+    expect(title()).toBe('Alice (travail)');
+    expect(names()).toEqual(['Alice (travail)']);
+    expect(document.querySelector('[data-detected-name]')!.textContent).toContain('Alice');
+    expect(stored('Alice')).toMatchObject({ customName: 'Alice (travail)', conversationId: ALICE });
+    // A Snapchat sync never overwrites it.
+    await detect(ALICE, 'Alice B.');
+    expect(title()).toBe('Alice (travail)');
+    await click(button('Revenir au nom Snapchat'));
+    await flush();
+    expect(title()).toBe('Alice B.');
+    expect(document.querySelector('[data-detected-name]')).toBeNull();
+  });
+
+  it('cancels renaming with Échap, and an empty title goes back to the detected name', async () => {
+    await detect(ALICE, 'Alice');
+    await render();
+    await click(button('Renommer la fiche'));
+    let input = document.querySelector<HTMLInputElement>('input[name="customName"]')!;
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(document.querySelector('input[name="customName"]')).toBeNull();
+    await click(button('Renommer la fiche'));
+    input = document.querySelector<HTMLInputElement>('input[name="customName"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '   ');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => input.form!.requestSubmit());
+    await flush();
+    expect(title()).toBe('Alice');
+    expect(stored('Alice').customName).toBeNull();
+  });
+
+  it('searches custom titles too', async () => {
+    await detect(ALICE, 'Alice');
+    await detect(BOB, 'Bob');
+    await storage.externalSet({ [`notes:note:${stored('Bob').id}`]: { ...stored('Bob'), customName: 'Collègue' } });
+    await render();
+    const search = document.querySelector<HTMLInputElement>('input[type="search"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'collegue');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(names()).toEqual(['Collègue']);
   });
 
   it('reorders by drag and drop or keyboard, keeps the order, and goes back to recent activity', async () => {
@@ -395,7 +452,7 @@ describe('export and import', () => {
   it('imports an archive after showing what it contains', async () => {
     await render();
     const archive = exportArchive([
-      { id: 'n1', conversationId: ALICE, name: 'Alice', html: '<p>importée</p>', createdAt: 1, updatedAt: 2, lastSeenAt: 3, trashedAt: null },
+      { id: 'n1', conversationId: ALICE, name: 'Alice', html: '<p>importée</p>', createdAt: 1, updatedAt: 2, lastSeenAt: 3, trashedAt: null, customName: null },
     ], { includeTrash: false });
     await chooseFile(archive);
     expect(document.body.textContent).toContain('1 fiche à importer');
@@ -441,7 +498,7 @@ describe('export and import', () => {
 
   it('can cancel an import', async () => {
     await render();
-    await chooseFile(exportArchive([{ id: 'n1', conversationId: null, name: 'X', html: '', createdAt: 1, updatedAt: 1, lastSeenAt: 1, trashedAt: null }], { includeTrash: false }));
+    await chooseFile(exportArchive([{ id: 'n1', conversationId: null, name: 'X', html: '', createdAt: 1, updatedAt: 1, lastSeenAt: 1, trashedAt: null, customName: null }], { includeTrash: false }));
     await click(button('Annuler'));
     expect(readNotes(storage.stored)).toEqual([]);
   });

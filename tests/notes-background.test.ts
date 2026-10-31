@@ -221,7 +221,7 @@ describe('import', () => {
   it('adds new notes with their ids and metadata', async () => {
     const note = imported('n1', { conversationId: ALICE, trashedAt: 4 });
     expect(await command({ type: 'notes:import', notes: [note], resolutions: {} })).toEqual({ ok: true, result: { added: 1, replaced: 0, skipped: 0 } });
-    expect(notes()).toEqual([note]);
+    expect(notes()).toEqual([{ ...note, customName: null }]);
   });
 
   it('keeps the existing note unless asked otherwise: nothing is overwritten silently', async () => {

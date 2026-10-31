@@ -1,7 +1,7 @@
 import { normalizeSearch } from '@/lib/utils';
-import { lastActivity, type Note } from './model';
+import { displayName, lastActivity, type Note } from './model';
 
-const byActivity = (a: Note, b: Note) => lastActivity(b) - lastActivity(a) || a.name.localeCompare(b.name);
+const byActivity = (a: Note, b: Note) => lastActivity(b) - lastActivity(a) || displayName(a).localeCompare(displayName(b));
 
 /**
  * The notes outside the trash, as the list shows them: by recent activity, or in the manual `order`
@@ -20,10 +20,10 @@ export function trashedNotes(notes: readonly Note[]): Note[] {
   return notes.filter((note) => note.trashedAt !== null).sort((a, b) => b.trashedAt! - a.trashedAt!);
 }
 
-/** Notes whose conversation name contains `query`; the content is never searched. */
+/** Notes whose custom title or conversation name contains `query`; the content is never searched. */
 export function filterByName(notes: readonly Note[], query: string): Note[] {
   const needle = normalizeSearch(query.trim());
-  return needle ? notes.filter((note) => normalizeSearch(note.name).includes(needle)) : [...notes];
+  return needle ? notes.filter((note) => [note.customName, note.name].some((name) => name !== null && normalizeSearch(name).includes(needle))) : [...notes];
 }
 
 /** `ids` with `id` moved to position `to`. */

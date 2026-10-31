@@ -1,7 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type UnzipFileInfo } from 'fflate';
 import { z } from 'zod';
 import { noteToText, sanitizeNoteHtml } from './content';
-import { MAX_HTML_LENGTH, noteSchema, type Note } from './model';
+import { displayName, MAX_HTML_LENGTH, noteSchema, type Note } from './model';
 
 // Archive exported by LeakZero, readable without it:
 //   manifest.json   format, version, and each note's ids and dates, with the paths of its files
@@ -26,14 +26,14 @@ function slug(text: string): string {
 }
 
 export function noteFileName(note: Note, extension: 'html' | 'txt'): string {
-  return `${slug(note.name) || 'note'}-${note.id.slice(0, 8)}.${extension}`;
+  return `${slug(displayName(note)) || 'note'}-${note.id.slice(0, 8)}.${extension}`;
 }
 
 const formatDate = (time: number) => new Date(time).toLocaleString('fr-FR');
 
 /** A note as a standalone page: no script, no remote resource (its CSP forbids them anyway). */
 export function noteDocument(note: Note): string {
-  const name = escapeHtml(note.name);
+  const name = escapeHtml(displayName(note));
   return `<!doctype html>
 <html lang="fr">
 <head>
@@ -52,7 +52,8 @@ export function noteDocument(note: Note): string {
 }
 
 export function noteText(note: Note): string {
-  return `${note.name}\n${'='.repeat(Math.min(note.name.length, 80))}\n\n${noteToText(note.html)}`;
+  const name = displayName(note);
+  return `${name}\n${'='.repeat(Math.min(name.length, 80))}\n\n${noteToText(note.html)}`;
 }
 
 const filePath = (folder: 'html' | 'txt') => z.string().regex(new RegExp(`^${folder}/[a-z0-9-]+\\.${folder}$`));
