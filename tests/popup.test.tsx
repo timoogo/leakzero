@@ -155,25 +155,23 @@ describe('accordions', () => {
 describe('Notes module', () => {
   const NOTES = settingKey('notes', 'enabled');
 
-  it('shows "Ouvrir Notes" only while the module is enabled, and asks the service worker to open the window', async () => {
+  it('shows "Ouvrir Notes" only while the module is enabled, and opens the floating window itself', async () => {
+    // No service worker listening (stopped, crashed or outdated): opening does not depend on it.
     const storage = fakeChrome(MIGRATED);
-    const received: unknown[] = [];
-    storage.api.runtime.onMessage.addListener((message) => void received.push(message));
     await render();
     await open('notes');
     expect(buttons('Ouvrir Notes')).toHaveLength(0);
     await click(control('notes-enabled') as HTMLButtonElement);
     expect(storage.stored[NOTES]).toBe(true);
     await click(button('Ouvrir Notes'));
-    expect(received).toEqual([{ type: 'notes:open' }]);
+    await flush();
+    expect([...storage.windows.values()]).toEqual([expect.objectContaining({ type: 'popup', url: 'chrome-extension://leakzero-test/notes.html' })]);
+    expect(document.querySelector('[role="alert"]')).toBeNull();
   });
 
   it('reports an error when the window cannot be opened', async () => {
     const storage = fakeChrome({ ...MIGRATED, [NOTES]: true, [StorageKeys.openSections]: ['notes'] });
-    storage.api.runtime.onMessage.addListener((_message, _sender, sendResponse) => {
-      sendResponse({ ok: false, error: 'boom' });
-      return true;
-    });
+    vi.mocked(storage.api.windows.create).mockRejectedValue(new Error('boom'));
     await render();
     await click(button('Ouvrir Notes'));
     await flush();

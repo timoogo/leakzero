@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { settingKey } from '../src/shared/keys';
 import { registerNotesBackground } from '../src/notes/background';
 import { NotesKeys } from '../src/notes/keys';
+import { openNotesWindow } from '../src/notes/window';
 import { activeConversation, readNotes, readOrder } from '../src/notes/model';
 import { fakeChrome } from './helpers/chrome';
 
 const ENABLED = settingKey('notes', 'enabled');
-const PAGE = 'chrome-extension://leakzero-test/src/notes/index.html';
+const PAGE = 'chrome-extension://leakzero-test/notes.html';
 const SNAP = 'https://www.snapchat.com/web';
 const ALICE = '0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
 const ALICE_2 = '1b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
@@ -189,17 +190,9 @@ describe('commands', () => {
 });
 
 describe('module lifecycle', () => {
-  it('opens the window only while the module is enabled', async () => {
-    expect(await command({ type: 'notes:open' })).toMatchObject({ ok: true });
-    expect(storage.windows.size).toBe(1);
-    start({ [ENABLED]: false });
-    expect(await command({ type: 'notes:open' })).toMatchObject({ ok: false });
-    expect(storage.windows.size).toBe(0);
-  });
-
   it('closes the window when the module is disabled, without deleting anything', async () => {
     await detect(ALICE, 'Alice');
-    await command({ type: 'notes:open' });
+    await openNotesWindow(storage.api);
     const before = notes();
     await storage.externalSet({ [ENABLED]: false });
     await vi.waitFor(() => expect(storage.windows.size).toBe(0));
@@ -207,7 +200,7 @@ describe('module lifecycle', () => {
   });
 
   it('keeps the module enabled when the window is closed', async () => {
-    await command({ type: 'notes:open' });
+    await openNotesWindow(storage.api);
     storage.closeWindow([...storage.windows.keys()][0]);
     expect(storage.stored[ENABLED]).toBe(true);
     expect(await detect(ALICE, 'Alice')).toMatchObject({ ok: true });

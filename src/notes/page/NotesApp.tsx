@@ -49,7 +49,8 @@ export default function NotesApp() {
   useEffect(() => {
     let stop: (() => void) | undefined;
     chrome.windows.getCurrent().then(
-      (win) => { if (win.id !== undefined) stop = trackWindowBounds(chrome, win.id); },
+      // Only the floating window: a tab must not save the size of the browser window it is in.
+      (win) => { if (win.id !== undefined && win.type === 'popup') stop = trackWindowBounds(chrome, win.id); },
       () => undefined,
     );
     return () => stop?.();
@@ -165,7 +166,9 @@ export default function NotesApp() {
             )}
           />
         ) : (
-          <p className="m-auto max-w-xs p-6 text-center text-muted-foreground">Ouvrez une conversation sur Snapchat ou choisissez une fiche.</p>
+          <p className="m-auto max-w-xs p-6 text-center text-muted-foreground">
+            {active ? 'Choisissez une fiche dans la liste.' : 'Aucune conversation Snapchat détectée pour l’instant. Ouvrez une conversation sur Snapchat Web ou choisissez une fiche.'}
+          </p>
         )}
       </section>
     </main>

@@ -13,7 +13,7 @@ import { fakeChrome } from './helpers/chrome';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const PAGE = 'chrome-extension://leakzero-test/src/notes/index.html';
+const PAGE = 'chrome-extension://leakzero-test/notes.html';
 const ALICE = '0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
 const BOB = '2c1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
 const CAROL = '3d1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
@@ -272,10 +272,48 @@ describe('Notes page', () => {
     expect(stored('Alice').trashedAt).toBeNull();
   });
 
-  it('remembers its position and size', async () => {
+  it('opens on the note of the last conversation, even after leaving Snapchat', async () => {
+    await detect(ALICE, 'Alice');
+    await detect(BOB, 'Bob');
+    // Snapchat tab closed, service worker restarted: only storage is left.
+    registerNotesBackground(storage.api);
+    await render();
+    expect(title()).toBe('Bob');
+    expect(editor().isEditable).toBe(true);
+  });
+
+  it('says so when no conversation was detected yet', async () => {
+    await render();
+    expect(document.body.textContent).toContain('Aucune conversation Snapchat détectée pour l’instant');
+  });
+
+  it('opened in a tab and in the window, shows the same data without overwriting it', async () => {
+    await detect(ALICE, 'Alice');
+    await render();
+    const other = document.createElement('div');
+    const tabRoot = createRoot(document.body.appendChild(other));
+    await act(async () => tabRoot.render(<NotesApp />));
+    await flush();
+    const [windowEditor, tabEditor] = [...document.querySelectorAll('.ProseMirror')].map((node) => (node as HTMLElement & { editor: Editor }).editor);
+    await act(async () => { tabEditor.commands.insertContent('depuis l’onglet'); });
+    await wait(400);
+    expect(stored('Alice').html).toBe('<p>depuis l’onglet</p>');
+    expect(windowEditor.getHTML()).toBe('<p>depuis l’onglet</p>');
+    act(() => tabRoot.unmount());
+    expect(stored('Alice').html).toBe('<p>depuis l’onglet</p>');
+  });
+
+  it('remembers its position and size in the floating window, not in a tab', async () => {
+    const tab = await storage.api.windows.create({ url: PAGE, type: 'normal' });
+    await render();
+    storage.moveWindow(tab.id!, { left: 5, top: 5, width: 1500, height: 900 });
+    await flush();
+    expect(storage.stored[NotesKeys.window]).toBeUndefined();
+    act(() => root!.unmount());
+    root = undefined;
     await storage.api.windows.create({ url: PAGE, type: 'popup' });
     await render();
-    storage.moveWindow(1, { left: 30, top: 40, width: 700, height: 500 });
+    storage.moveWindow(2, { left: 30, top: 40, width: 700, height: 500 });
     await flush();
     expect(storage.stored[NotesKeys.window]).toEqual({ left: 30, top: 40, width: 700, height: 500 });
   });

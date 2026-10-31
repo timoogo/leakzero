@@ -1,6 +1,7 @@
 import { NotesKeys } from './keys';
 
-export const NOTES_PAGE = 'src/notes/index.html';
+/** The Notes page, shown in the floating window or opened directly in a tab. */
+export const NOTES_PAGE = 'notes.html';
 
 export interface WindowBounds {
   left: number;
@@ -19,12 +20,17 @@ function storedBounds(value: unknown): WindowBounds | undefined {
 }
 
 /**
- * The window showing the Notes page, looked up from Chrome rather than remembered: the service worker
- * may have been stopped and restarted since it opened it.
+ * The floating window showing the Notes page, looked up from Chrome rather than remembered (whoever
+ * opened it may be gone). A Notes page opened in a tab of a normal window is not it.
  */
 export async function findNotesWindow(api: typeof chrome): Promise<number | undefined> {
   const contexts = await api.runtime.getContexts({ contextTypes: ['TAB' as chrome.runtime.ContextType], documentUrls: [api.runtime.getURL(NOTES_PAGE)] });
-  return contexts.find((context) => context.windowId !== api.windows.WINDOW_ID_NONE)?.windowId;
+  for (const { windowId } of contexts) {
+    if (windowId === api.windows.WINDOW_ID_NONE) continue;
+    const win = await api.windows.get(windowId).catch(() => undefined);
+    if (win?.type === 'popup') return windowId;
+  }
+  return undefined;
 }
 
 async function focusOrCreate(api: typeof chrome): Promise<void> {
@@ -47,7 +53,10 @@ async function focusOrCreate(api: typeof chrome): Promise<void> {
 
 let opening: Promise<void> | undefined;
 
-/** Brings the single Notes window to the front (restoring it if minimized), or opens it. */
+/**
+ * Brings the single Notes window to the front (restoring it if minimized), or opens it. Called by the
+ * popup itself: opening needs no service worker.
+ */
 export function openNotesWindow(api: typeof chrome = chrome): Promise<void> {
   // Two clicks in a row must not open two windows: the second waits for the first.
   opening ??= focusOrCreate(api).finally(() => (opening = undefined));

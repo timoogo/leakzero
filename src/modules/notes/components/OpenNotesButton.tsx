@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { sendNotesCommand } from '../../../notes/messages';
+import { openNotesWindow } from '../../../notes/window';
 import type { ModuleComponentProps } from '../../ui';
 
-/** Opens the Notes window, or brings it to the front: the service worker owns it (src/notes/window.ts). */
+/** Opens the floating Notes window, or brings it to the front (src/notes/window.ts). */
 export default function OpenNotesButton({ values }: ModuleComponentProps) {
   const [error, setError] = useState<string | null>(null);
   if (values.enabled !== true) return null;
@@ -16,7 +16,7 @@ export default function OpenNotesButton({ values }: ModuleComponentProps) {
         className="w-full"
         onClick={() => {
           setError(null);
-          sendNotesCommand({ type: 'notes:open' }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+          openNotesWindow().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
         }}
       >
         <ExternalLink /> Ouvrir Notes

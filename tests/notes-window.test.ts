@@ -5,7 +5,7 @@ import { closeNotesWindow, openNotesWindow, trackWindowBounds } from '../src/not
 import { fakeChrome } from './helpers/chrome';
 
 const ENABLED = settingKey('notes', 'enabled');
-const PAGE = 'chrome-extension://leakzero-test/src/notes/index.html';
+const PAGE = 'chrome-extension://leakzero-test/notes.html';
 
 let storage: ReturnType<typeof fakeChrome>;
 beforeEach(() => {
@@ -81,6 +81,19 @@ describe('Notes window', () => {
     storage.stored[NotesKeys.window] = { left: 'x', width: -3 };
     await openNotesWindow(storage.api);
     expect(storage.api.windows.create).toHaveBeenCalledWith(expect.not.objectContaining({ left: 'x' }));
+  });
+
+  it('opens the floating window even when Notes is open in a tab, and reuses the window, not the tab', async () => {
+    const tab = await storage.api.windows.create({ url: PAGE, type: 'normal' });
+    await openNotesWindow(storage.api);
+    expect(storage.windows.size).toBe(2);
+    const popup = [...storage.windows.values()].find((win) => win.type === 'popup')!;
+    popup.focused = false;
+    storage.windows.get(tab.id!)!.focused = false;
+    await openNotesWindow(storage.api);
+    expect(storage.windows.size).toBe(2);
+    expect(popup.focused).toBe(true);
+    expect(storage.windows.get(tab.id!)!.focused).toBe(false);
   });
 
   it('closes the window', async () => {

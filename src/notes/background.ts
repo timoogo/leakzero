@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { conversationSchema, MAX_HTML_LENGTH, noteIdSchema, noteSchema, NOTES_ENABLED } from './model';
 import type { NotesResponse } from './messages';
 import { createNotesStore, NotesStoreError } from './store';
-import { closeNotesWindow, openNotesWindow } from './window';
+import { closeNotesWindow } from './window';
 
 /** Pages the Snapchat content script runs on (manifest.config.ts). */
 const SNAPCHAT_HOSTS = ['www.snapchat.com'];
@@ -14,7 +14,6 @@ const contentCommand = z.strictObject({ type: z.literal('notes:conversation'), c
 
 /** Sent by the extension's own pages: the popup and the Notes page. */
 const pageCommand = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('notes:open') }),
   z.strictObject({ type: z.literal('notes:save'), ...id.shape, html: z.string().max(MAX_HTML_LENGTH) }),
   z.strictObject({ type: z.literal('notes:trash'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:restore'), ...id.shape }),
@@ -73,9 +72,6 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
     const command = parsed.data;
     // Edits stay allowed while disabled: a save still pending when the module is turned off is kept.
     switch (command.type) {
-      case 'notes:open':
-        await requireEnabled();
-        return openNotesWindow(api);
       case 'notes:save': return store.save(command.id, command.html);
       case 'notes:trash': return store.trash(command.id);
       case 'notes:restore': return store.restore(command.id);
