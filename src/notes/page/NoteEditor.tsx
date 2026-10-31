@@ -115,15 +115,17 @@ export function SaveIndicator({ status, onRetry }: { status: SaveStatus; onRetry
 
 interface Props {
   note: Note;
-  /** Rendered in the header, next to the save state. */
-  actions: ReactNode;
+  /** Rendered in the header, next to the save state. `current` gives the note as shown, unsaved changes included. */
+  actions: (current: () => Note) => ReactNode;
+  /** The focus entered or left the editor (its toolbar and link field included). */
+  onEditingChange: (editing: boolean) => void;
 }
 
 /**
  * Editor of one note (mounted per note: `key={note.id}`). Saves SAVE_DELAY_MS after the last change,
  * and at once when the note is left or the window closed, so a pending change is never lost.
  */
-export function NoteEditor({ note, actions }: Props) {
+export function NoteEditor({ note, actions, onEditingChange }: Props) {
   const [status, setStatus] = useState<SaveStatus>('saved');
   const autosave = useMemo(
     () => createAutosave({ delay: SAVE_DELAY_MS, onStatus: setStatus, save: (html) => sendNotesCommand({ type: 'notes:save', id: note.id, html }) }),
@@ -135,6 +137,9 @@ export function NoteEditor({ note, actions }: Props) {
     editorProps: { attributes: { class: 'note-content', 'aria-label': `Notes de ${note.name}` } },
     onUpdate: ({ editor: current }) => autosave.change(current.isEmpty ? '' : current.getHTML()),
   });
+
+  // Unmounted with the focus inside (note deleted…): not editing anymore.
+  useEffect(() => () => onEditingChange(false), [onEditingChange]);
 
   useEffect(() => {
     const onPageHide = () => void autosave.flush();
@@ -156,11 +161,24 @@ export function NoteEditor({ note, actions }: Props) {
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-3">
         <h1 data-note-title className="min-w-0 flex-1 truncate text-lg font-semibold">{note.name}</h1>
         <SaveIndicator status={status} onRetry={() => void autosave.flush()} />
-        <div className="flex items-center gap-1">{actions}</div>
+        <div className="flex items-center gap-1">
+          {actions(() => {
+            void autosave.flush();
+            return editor ? { ...note, html: editor.isEmpty ? '' : editor.getHTML() } : note;
+          })}
+        </div>
       </header>
-      {editor && <Toolbar editor={editor} />}
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4" onClick={() => editor?.commands.focus()}>
-        <EditorContent editor={editor} className="mx-auto h-full max-w-3xl" />
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        onFocus={() => onEditingChange(true)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onEditingChange(false);
+        }}
+      >
+        {editor && <Toolbar editor={editor} />}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4" onClick={() => editor?.commands.focus()}>
+          <EditorContent editor={editor} className="mx-auto h-full max-w-3xl" />
+        </div>
       </div>
     </div>
   );

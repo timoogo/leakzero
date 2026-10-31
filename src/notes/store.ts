@@ -1,3 +1,4 @@
+import { applyImport, type ImportResolution } from './importing';
 import { noteKey, NotesKeys } from './keys';
 import { readNotes, readOrder, unnamedConversation, type Conversation, type Note } from './model';
 
@@ -66,6 +67,14 @@ export function createNotesStore(api: typeof chrome = chrome) {
         const order = readOrder(await local.get(NotesKeys.order));
         if (order?.includes(id)) await local.set({ [NotesKeys.order]: order.filter((other) => other !== id) });
         await local.remove(noteKey(id));
+      }),
+
+    /** Writes every imported note in a single write, or none. */
+    import: (notes: Note[], resolutions: Record<string, ImportResolution>) =>
+      exclusive(async () => {
+        const { patch, summary } = applyImport(notes, readNotes(await local.get(null)), resolutions, () => crypto.randomUUID());
+        if (Object.keys(patch).length > 0) await local.set(patch);
+        return summary;
       }),
 
     /** `null` goes back to the recent-activity sort. */

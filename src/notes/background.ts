@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { conversationSchema, MAX_HTML_LENGTH, noteIdSchema, NOTES_ENABLED } from './model';
+import { conversationSchema, MAX_HTML_LENGTH, noteIdSchema, noteSchema, NOTES_ENABLED } from './model';
 import type { NotesResponse } from './messages';
 import { createNotesStore, NotesStoreError } from './store';
 import { closeNotesWindow, openNotesWindow } from './window';
@@ -20,7 +20,18 @@ const pageCommand = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('notes:restore'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:purge'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:setOrder'), order: z.array(noteIdSchema).max(10_000).nullable() }),
+  z.strictObject({
+    type: z.literal('notes:import'),
+    // Parsed and sanitized by the Notes page (src/notes/archive.ts); checked again here.
+    notes: z.array(noteSchema).max(5000).refine(unique, 'duplicate note or conversation'),
+    resolutions: z.record(noteIdSchema, z.enum(['keep', 'replace', 'both'])),
+  }),
 ]);
+
+function unique(notes: z.infer<typeof noteSchema>[]): boolean {
+  const conversations = notes.flatMap((note) => (note.conversationId ? [note.conversationId] : []));
+  return new Set(notes.map((note) => note.id)).size === notes.length && new Set(conversations).size === conversations.length;
+}
 
 function isSnapchat(url: string | undefined): boolean {
   try {
@@ -70,6 +81,7 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
       case 'notes:restore': return store.restore(command.id);
       case 'notes:purge': return store.purge(command.id);
       case 'notes:setOrder': return store.setOrder(command.order);
+      case 'notes:import': return store.import(command.notes, command.resolutions);
     }
   }
 

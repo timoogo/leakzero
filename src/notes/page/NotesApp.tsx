@@ -1,13 +1,16 @@
-import { useEffect, useReducer, useState } from 'react';
-import { ArrowDownWideNarrow, LocateFixed, NotebookPen, Search, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useReducer, useState } from 'react';
+import { ArrowDownWideNarrow, FileCode, FileText, LocateFixed, NotebookPen, Search, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useStorage } from '../../popup/useStorage';
+import { noteDocument, noteFileName, noteText } from '../archive';
 import { follow, initialFollow } from '../follow';
 import { filterByName, listedNotes, moveNote, trashedNotes } from '../list';
 import { sendNotesCommand } from '../messages';
 import { activeConversation, readNotes, readOrder } from '../model';
 import { trackWindowBounds } from '../window';
+import { ArchiveActions } from './ArchiveActions';
+import { downloadFile } from './download';
 import { NoteEditor } from './NoteEditor';
 import { NoteList } from './NoteList';
 import { TrashList } from './TrashList';
@@ -28,6 +31,7 @@ export default function NotesApp() {
   const [view, setView] = useState<'notes' | 'trash'>('notes');
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const notes = readNotes(items);
   const order = readOrder(items);
@@ -50,6 +54,8 @@ export default function NotesApp() {
     );
     return () => stop?.();
   }, []);
+
+  const onEditingChange = useCallback((editing: boolean) => dispatch({ type: editing ? 'focus' : 'blur' }), []);
 
   const run = (command: Parameters<typeof sendNotesCommand>[0]) => {
     setError(null);
@@ -103,24 +109,24 @@ export default function NotesApp() {
           )}
         </div>
         <div className="space-y-1 border-t p-2">
+          <ArchiveActions notes={notes} onError={setError} onDone={setNotice} />
           <Button variant="ghost" size="sm" className="w-full justify-start px-2" onClick={() => setView(view === 'notes' ? 'trash' : 'notes')}>
             {view === 'notes' ? <><Trash2 /> Corbeille ({trash.length})</> : <>← Retour aux fiches</>}
           </Button>
         </div>
       </aside>
 
-      <section
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
-        // "Editing" covers the toolbar and the link field too: using them must not switch notes.
-        onFocus={() => dispatch({ type: 'focus' })}
-        onBlur={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) dispatch({ type: 'blur' });
-        }}
-      >
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         {message && (
           <div role="alert" className="m-3 mb-0 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs">
             <span className="flex-1">{message}</span>
             {error && <button type="button" aria-label="Fermer le message" className="cursor-pointer text-muted-foreground" onClick={() => setError(null)}><X className="size-3.5" /></button>}
+          </div>
+        )}
+        {notice && (
+          <div role="status" className="m-3 mb-0 flex items-start gap-2 rounded-md bg-primary/10 px-3 py-2 text-xs text-primary">
+            <span className="flex-1">{notice}</span>
+            <button type="button" aria-label="Fermer le message" className="cursor-pointer" onClick={() => setNotice(null)}><X className="size-3.5" /></button>
           </div>
         )}
         {view === 'notes' && active && activeNote && activeNote.trashedAt !== null && (
@@ -141,11 +147,22 @@ export default function NotesApp() {
           <NoteEditor
             key={selected.id}
             note={selected}
-            actions={
-              <Button variant="ghost" size="sm" onClick={() => void run({ type: 'notes:trash', id: selected.id })}>
-                <Trash2 /> Supprimer
-              </Button>
-            }
+            onEditingChange={onEditingChange}
+            actions={(current) => (
+              <>
+                <Button variant="ghost" size="icon" aria-label="Exporter en HTML" title="Exporter en HTML"
+                  onClick={() => downloadFile(noteFileName(selected, 'html'), new Blob([noteDocument(current())], { type: 'text/html' }))}>
+                  <FileCode />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="Exporter en TXT" title="Exporter en TXT"
+                  onClick={() => downloadFile(noteFileName(selected, 'txt'), new Blob([noteText(current())], { type: 'text/plain' }))}>
+                  <FileText />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => void run({ type: 'notes:trash', id: selected.id })}>
+                  <Trash2 /> Supprimer
+                </Button>
+              </>
+            )}
           />
         ) : (
           <p className="m-auto max-w-xs p-6 text-center text-muted-foreground">Ouvrez une conversation sur Snapchat ou choisissez une fiche.</p>

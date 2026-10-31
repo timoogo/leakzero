@@ -196,3 +196,65 @@ describe('module lifecycle', () => {
     expect(await detect(ALICE, 'Alice')).toMatchObject({ ok: true });
   });
 });
+
+describe('import', () => {
+  const imported = (id: string, extra: Record<string, unknown> = {}) => ({
+    id, conversationId: null, name: id, html: `<p>${id}</p>`, createdAt: 1, updatedAt: 2, lastSeenAt: 3, trashedAt: null, ...extra,
+  });
+
+  async function existingAlice() {
+    await detect(ALICE, 'Alice');
+    await command({ type: 'notes:save', id: notes()[0].id, html: '<p>local</p>' });
+    return notes()[0];
+  }
+
+  it('adds new notes with their ids and metadata', async () => {
+    const note = imported('n1', { conversationId: ALICE, trashedAt: 4 });
+    expect(await command({ type: 'notes:import', notes: [note], resolutions: {} })).toEqual({ ok: true, result: { added: 1, replaced: 0, skipped: 0 } });
+    expect(notes()).toEqual([note]);
+  });
+
+  it('keeps the existing note unless asked otherwise: nothing is overwritten silently', async () => {
+    const local = await existingAlice();
+    await command({ type: 'notes:import', notes: [imported('n1', { conversationId: ALICE })], resolutions: {} });
+    expect(notes()).toEqual([local]);
+  });
+
+  it('replaces the existing note, keeping its id and its conversation', async () => {
+    const local = await existingAlice();
+    const result = await command({ type: 'notes:import', notes: [imported('n1', { conversationId: ALICE, name: 'Alice (archive)' })], resolutions: { n1: 'replace' } });
+    expect(result).toMatchObject({ result: { replaced: 1 } });
+    expect(notes()).toEqual([expect.objectContaining({ id: local.id, conversationId: ALICE, name: 'Alice (archive)', html: '<p>n1</p>' })]);
+  });
+
+  it('keeps both: the copy gets a new id and is not tied to the conversation already followed', async () => {
+    const local = await existingAlice();
+    await command({ type: 'notes:import', notes: [imported(local.id, { conversationId: ALICE })], resolutions: { [local.id]: 'both' } });
+    const [copy] = notes().filter((note) => note.id !== local.id);
+    expect(notes()).toHaveLength(2);
+    expect(notes().find((note) => note.id === local.id)).toEqual(local);
+    expect(copy).toMatchObject({ conversationId: null, html: `<p>${local.id}</p>` });
+    await detect(ALICE, 'Alice');
+    expect(notes()).toHaveLength(2);
+  });
+
+  it('keeps the conversation of a copy whose id only conflicted', async () => {
+    const local = await existingAlice();
+    await command({ type: 'notes:import', notes: [imported(local.id, { conversationId: ALICE_2 })], resolutions: { [local.id]: 'both' } });
+    expect(notes().find((note) => note.id !== local.id)).toMatchObject({ conversationId: ALICE_2 });
+  });
+
+  it('writes all or nothing', async () => {
+    const local = await existingAlice();
+    storage.failNextSet();
+    const result = await command({ type: 'notes:import', notes: [imported('n1'), imported('n2', { conversationId: ALICE })], resolutions: { n2: 'replace' } });
+    expect(result).toMatchObject({ ok: false });
+    expect(notes()).toEqual([local]);
+  });
+
+  it('rejects invalid notes before writing anything', async () => {
+    expect(await command({ type: 'notes:import', notes: [imported('n1'), { ...imported('n2'), name: '' }], resolutions: {} })).toMatchObject({ ok: false });
+    expect(await command({ type: 'notes:import', notes: [imported('n1'), imported('n1')], resolutions: {} })).toMatchObject({ ok: false });
+    expect(notes()).toEqual([]);
+  });
+});

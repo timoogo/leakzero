@@ -2,6 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { Editor } from '@tiptap/core';
+import { strFromU8, unzipSync } from 'fflate';
+import { exportArchive } from '../src/notes/archive';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerNotesBackground } from '../src/notes/background';
 import { NotesKeys } from '../src/notes/keys';
@@ -31,8 +33,9 @@ async function render() {
   await flush();
 }
 
-/** The Snapchat content script reports a conversation. */
+/** The Snapchat content script reports a conversation, a second after the previous one. */
 async function detect(id: string, name: string) {
+  vi.setSystemTime(Date.now() + 1000);
   storage.setSender({ url: `https://www.snapchat.com/web/${id}`, tab: { id: 9 } as chrome.tabs.Tab });
   const response = storage.api.runtime.sendMessage({ type: 'notes:conversation', conversation: { id, name } });
   storage.setSender({ url: PAGE });
@@ -46,7 +49,8 @@ const selected = () => document.querySelector('[data-note][aria-current="true"] 
 const title = () => document.querySelector('h1[data-note-title]')?.textContent;
 const editor = () => (document.querySelector('.ProseMirror') as HTMLElement & { editor: Editor }).editor;
 const status = () => document.querySelector('[data-save-status]')!.textContent;
-const buttons = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].filter((b) => b.textContent!.includes(text) || b.getAttribute('aria-label') === text);
+/** Buttons the user can reach: those of the open dialog, if any (it is modal). */
+const buttons = (text: string) => [...(document.querySelector('[role="alertdialog"]') ?? document).querySelectorAll<HTMLButtonElement>('button')].filter((b) => b.textContent!.includes(text) || b.getAttribute('aria-label') === text);
 const button = (text: string) => {
   const found = buttons(text);
   expect(found, `button "${text}"`).toHaveLength(1);
@@ -62,6 +66,8 @@ const focusEditor = () => act(async () => { editor().view.dom.dispatchEvent(new 
 const blurEditor = () => act(async () => { editor().view.dom.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
 
 beforeEach(() => {
+  // Only the clock: activity dates must differ even within the same millisecond.
+  vi.useFakeTimers({ toFake: ['Date'], now: 1_700_000_000_000 });
   storage = fakeChrome({ [NOTES_ENABLED]: true });
   storage.setSender({ url: PAGE });
   registerNotesBackground(storage.api);
@@ -71,6 +77,7 @@ afterEach(() => {
   if (root) act(() => root!.unmount());
   root = undefined;
   document.body.innerHTML = '';
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -271,5 +278,117 @@ describe('Notes page', () => {
     storage.moveWindow(1, { left: 30, top: 40, width: 700, height: 500 });
     await flush();
     expect(storage.stored[NotesKeys.window]).toEqual({ left: 30, top: 40, width: 700, height: 500 });
+  });
+});
+
+describe('export and import', () => {
+  let downloads: { name: string; blob: Blob }[];
+  beforeEach(() => {
+    downloads = [];
+    const urls = new Map<string, Blob>();
+    vi.stubGlobal('URL', Object.assign(URL, {
+      createObjectURL: (blob: Blob) => {
+        const url = `blob:test/${urls.size}`;
+        urls.set(url, blob);
+        return url;
+      },
+      revokeObjectURL: () => undefined,
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push({ name: this.download, blob: urls.get(this.href)! });
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const zipEntries = async (blob: Blob) =>
+    Object.fromEntries(Object.entries(unzipSync(new Uint8Array(await blob.arrayBuffer()))).map(([name, data]) => [name, strFromU8(data)]));
+
+  async function chooseFile(bytes: Uint8Array, name = 'notes.zip') {
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File([bytes as Uint8Array<ArrayBuffer>], name, { type: 'application/zip' })] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await flush();
+    await flush();
+  }
+
+  it('exports the open note as HTML or TXT', async () => {
+    await detect(ALICE, 'Alice');
+    await render();
+    await type('Rappel');
+    await click(button('Exporter en HTML'));
+    await click(button('Exporter en TXT'));
+    expect(downloads.map((download) => download.name)).toEqual([expect.stringMatching(/^alice-.+\.html$/), expect.stringMatching(/^alice-.+\.txt$/)]);
+    expect(await downloads[0].blob.text()).toContain('<main id="note"><p>Rappel</p></main>');
+    expect(await downloads[1].blob.text()).toContain('Rappel');
+  });
+
+  it('exports every note as a ZIP, the trash only when asked', async () => {
+    await detect(ALICE, 'Alice');
+    await detect(BOB, 'Bob');
+    await render();
+    await click(button('Supprimer'));
+    await flush();
+    await click(button('Exporter tout (ZIP)'));
+    await click(button('Exporter'));
+    expect(downloads[0].name).toMatch(/^leakzero-notes-\d{4}-\d{2}-\d{2}\.zip$/);
+    expect(JSON.parse((await zipEntries(downloads[0].blob))['manifest.json']).notes.map((note: { name: string }) => note.name)).toEqual(['Alice']);
+    await click(button('Exporter tout (ZIP)'));
+    await click(document.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Inclure la corbeille"]')!);
+    await click(button('Exporter'));
+    expect(JSON.parse((await zipEntries(downloads[1].blob))['manifest.json']).notes).toHaveLength(2);
+  });
+
+  it('imports an archive after showing what it contains', async () => {
+    await render();
+    const archive = exportArchive([
+      { id: 'n1', conversationId: ALICE, name: 'Alice', html: '<p>importée</p>', createdAt: 1, updatedAt: 2, lastSeenAt: 3, trashedAt: null },
+    ], { includeTrash: false });
+    await chooseFile(archive);
+    expect(document.body.textContent).toContain('1 fiche à importer');
+    expect(readNotes(storage.stored)).toEqual([]);
+    await click(button('Importer'));
+    await flush();
+    expect(stored('Alice')).toMatchObject({ id: 'n1', html: '<p>importée</p>' });
+    expect(document.body.textContent).toContain('1 ajoutée');
+  });
+
+  it('resolves conflicts with a global choice, overridable per note', async () => {
+    await detect(ALICE, 'Alice');
+    await detect(BOB, 'Bob');
+    await render();
+    const alice = stored('Alice');
+    const bob = stored('Bob');
+    const archive = exportArchive([
+      { ...alice, html: '<p>archive Alice</p>' },
+      { ...bob, html: '<p>archive Bob</p>' },
+    ], { includeTrash: false });
+    await chooseFile(archive);
+    expect(document.body.textContent).toContain('2 en conflit');
+    const choice = (scope: string, label: string) =>
+      document.querySelector<HTMLButtonElement>(`[role="radiogroup"][aria-label="${scope}"] [role="radio"][aria-label="${label}"]`)!;
+    expect(choice('Pour toutes les fiches en conflit', 'Conserver l’existante').getAttribute('aria-checked')).toBe('true');
+    await click(choice('Pour toutes les fiches en conflit', 'Remplacer'));
+    await click(choice('Bob', 'Conserver les deux'));
+    await click(button('Importer'));
+    await flush();
+    expect(readNotes(storage.stored)).toHaveLength(3);
+    expect(stored('Alice')).toMatchObject({ id: alice.id, html: '<p>archive Alice</p>' });
+    expect(stored('Bob')).toMatchObject({ id: bob.id, html: '' });
+    expect(stored('Bob (copie importée)')).toMatchObject({ conversationId: null, html: '<p>archive Bob</p>' });
+  });
+
+  it('rejects an invalid archive without writing anything', async () => {
+    await render();
+    await chooseFile(new TextEncoder().encode('pas un zip'));
+    expect(document.querySelector('[role="alert"]')!.textContent).toContain('n’est pas une archive ZIP');
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(readNotes(storage.stored)).toEqual([]);
+  });
+
+  it('can cancel an import', async () => {
+    await render();
+    await chooseFile(exportArchive([{ id: 'n1', conversationId: null, name: 'X', html: '', createdAt: 1, updatedAt: 1, lastSeenAt: 1, trashedAt: null }], { includeTrash: false }));
+    await click(button('Annuler'));
+    expect(readNotes(storage.stored)).toEqual([]);
   });
 });
