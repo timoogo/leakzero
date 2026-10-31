@@ -11,6 +11,17 @@ const HEADER_NAME = ['main header :is(h1, h2, h3)', '[role="main"] header :is(h1
 const TITLE_DECORATIONS = /^\(\d+\)\s*|\s*[|·-]\s*Snapchat\s*$/g;
 /** Mutations are handled at most this often: Snapchat's DOM changes with every message. */
 const DEBOUNCE_MS = 250;
+/** Delay before sending again a conversation the service worker did not take. */
+const RETRY_MS = 2000;
+
+// Temporary diagnostics, to tell apart a script that is not injected (no "script chargé" in the tab's
+// console), a detection that fails and a delivery that fails. Never logs page content.
+let lastLog: string | undefined;
+function diagnose(level: 'info' | 'warn', message: string) {
+  if (message === lastLog) return;
+  lastLog = message;
+  console[level](`[LeakZero Notes] ${message}`);
+}
 
 function asName(text: string | null | undefined): string | null {
   const name = (text ?? '').replace(/\s+/g, ' ').trim();
@@ -39,6 +50,8 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
   let lastConversation: Conversation | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const observer = new MutationObserver(() => schedule());
+  lastLog = undefined;
+  diagnose('info', `script chargé sur ${doc.location.host}${doc.location.pathname}`);
 
   const orphaned = () => {
     try {
@@ -56,16 +69,36 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
     const conversation = readConversation(doc);
     // Snapchat may hide the conversation (window left, popup opened…): the last one stays the active
     // one until another valid conversation is open; a name that disappears is not reported either.
-    if (!conversation) return;
+    if (!conversation) {
+      diagnose('info', `aucune conversation dans l’URL ${doc.location.pathname} (attendu : /web/<uuid>)`);
+      return;
+    }
     if (conversation.name === null && lastConversation?.id === conversation.id) return;
     const key = JSON.stringify(conversation);
     if (key === last) return;
     last = key;
     lastConversation = conversation;
-    api.runtime.sendMessage({ type: 'notes:conversation', conversation }).catch(() => {
-      if (orphaned()) stop();
-      else last = undefined;
-    });
+    const label = `conversation ${conversation.id.slice(0, 8)}`;
+    diagnose('info', `${label} détectée, ${conversation.name === null ? 'nom introuvable (nom provisoire)' : 'nom trouvé'}`);
+    const retry = (reason: string) => {
+      diagnose('warn', `envoi de la ${label} au service worker échoué : ${reason}`);
+      if (orphaned()) return stop();
+      // Sent again even if Snapchat no longer changes the page (window in the background).
+      if (last === key) {
+        // Not recorded: sent again even without its name (the service worker keeps a known name).
+        last = undefined;
+        lastConversation = null;
+        clearTimeout(timer);
+        timer = setTimeout(check, RETRY_MS);
+      }
+    };
+    api.runtime.sendMessage({ type: 'notes:conversation', conversation }).then(
+      (response: { ok?: boolean; error?: string } | undefined) => {
+        if (response?.ok) diagnose('info', `${label} enregistrée`);
+        else retry(response?.error ?? 'pas de réponse');
+      },
+      (error: unknown) => retry(error instanceof Error ? error.message : String(error)),
+    );
   }
 
   function schedule() {
@@ -75,6 +108,7 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
   function setEnabled(value: boolean) {
     if (stopped || value === enabled) return;
     enabled = value;
+    diagnose('info', enabled ? 'module activé, suivi démarré' : 'module désactivé, suivi arrêté');
     if (enabled) {
       last = undefined;
       observer.observe(doc.documentElement, { childList: true, subtree: true, characterData: true });
@@ -112,7 +146,11 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
   api.storage.onChanged.addListener(onChanged);
   api.storage.local.get(NOTES_ENABLED).then(
     (items) => setEnabled(items[NOTES_ENABLED] === true),
-    () => stop(),
+    (error: unknown) => {
+      diagnose('warn', `réglages illisibles, suivi arrêté : ${error instanceof Error ? error.message : String(error)}`);
+      stop();
+    },
   );
+  if (!enabled) diagnose('info', 'lecture des réglages…');
   return stop;
 }

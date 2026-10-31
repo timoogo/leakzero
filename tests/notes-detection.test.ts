@@ -167,6 +167,52 @@ describe('conversation tracking', () => {
   });
 });
 
+describe('real-world chain', () => {
+  it('follows an SPA navigation into Snapchat Web, from a page that is not a conversation', async () => {
+    history.replaceState({}, '', '/');
+    document.body.innerHTML = '<main>Accueil</main>';
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    expect(received).toEqual([]);
+    openConversation(ALICE, 'Alice');
+    await settle();
+    expect(reported()).toEqual([{ id: ALICE, name: 'Alice' }]);
+  });
+
+  it('sends again when the service worker did not answer, even if Snapchat no longer changes the page', async () => {
+    const send = vi.mocked(storage.api.runtime.sendMessage);
+    send.mockRejectedValueOnce(new Error('Could not establish connection. Receiving end does not exist.'));
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    expect(received).toEqual([]);
+    // No DOM change: the window lost focus, Snapchat is idle.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(reported()).toEqual([{ id: ALICE, name: 'Alice' }]);
+  });
+
+  it('logs each step, so a missing injection, a failed detection and a failed delivery can be told apart', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    history.replaceState({}, '', '/web/pas-un-uuid');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    const logs = () => [...info.mock.calls, ...warn.mock.calls].map((call) => call.join(' '));
+    expect(logs()).toContainEqual(expect.stringMatching(/\[LeakZero Notes\] script chargé/));
+    expect(logs()).toContainEqual(expect.stringMatching(/module activé/));
+    expect(logs()).toContainEqual(expect.stringMatching(/aucune conversation dans l’URL.*\/web\/pas-un-uuid/));
+    vi.mocked(storage.api.runtime.sendMessage).mockRejectedValueOnce(new Error('Receiving end does not exist.'));
+    openConversation(ALICE, null);
+    await settle();
+    expect(logs()).toContainEqual(expect.stringMatching(/conversation 0b1c2d3e.*nom introuvable/));
+    expect(warn.mock.calls.map((call) => call.join(' '))).toContainEqual(expect.stringMatching(/envoi.*échoué.*Receiving end does not exist/));
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(logs()).toContainEqual(expect.stringMatching(/conversation 0b1c2d3e enregistrée/));
+    // Never the content of the page.
+    expect(logs().join('\n')).not.toMatch(/message privé|06 00/);
+  });
+});
+
 describe('content script → service worker', () => {
   it('creates one note per conversation and follows the active one, also with the Notes window closed', async () => {
     storage = fakeChrome({ [NOTES_ENABLED]: true });
@@ -182,6 +228,16 @@ describe('content script → service worker', () => {
     expect(readNotes(storage.stored).map((note) => note.name).sort()).toEqual(['Alice', 'Bob']);
     expect(activeConversation(storage.stored)).toMatchObject({ conversationId: ALICE });
     expect(storage.windows.size).toBe(0);
+  });
+
+  it('accepts Snapchat Web without www', async () => {
+    storage = fakeChrome({ [NOTES_ENABLED]: true });
+    storage.setSender({ url: `https://snapchat.com/web/${ALICE}`, tab: { id: 3 } as chrome.tabs.Tab });
+    registerNotesBackground(storage.api);
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    expect(readNotes(storage.stored).map((note) => note.name)).toEqual(['Alice']);
   });
 
   it('names a conversation whose name is not found yet, and keeps a known name when it is missing', async () => {

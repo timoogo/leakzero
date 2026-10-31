@@ -104,8 +104,13 @@ Limites : 1 Mo de HTML par fiche ; `chrome.storage.local` est limité à 10 Mo a
 ## Limites connues
 - Les sélecteurs du nom dépendent du DOM de Snapchat Web : s'il change, les fiches gardent leur dernier
   nom connu (ou le nom provisoire) jusqu'à adaptation de `HEADER_NAME` dans `src/notes/detect.ts`.
-- Le script n'est injecté qu'au chargement d'une page `www.snapchat.com/web*` ; arriver sur Snapchat Web
-  par une navigation interne depuis une autre page de snapchat.com nécessite de recharger l'onglet.
+- Le script est injecté sur toutes les pages `snapchat.com` et `www.snapchat.com` (Snapchat Web peut être
+  atteint sans rechargement) mais n'agit que sur `/web/<uuid>`.
+- Diagnostic (temporaire) : la console de l'onglet Snapchat affiche les étapes `[LeakZero Notes]`
+  (script chargé, module activé, URL sans conversation, conversation détectée avec ou sans nom, envoi
+  enregistré ou échoué avec sa raison, nouvel essai toutes les 2 s). Aucune ligne : script non injecté.
+  La console du service worker (`chrome://extensions` → LeakZero → « service worker ») affiche les
+  conversations enregistrées ou refusées.
 - Avec plusieurs onglets Snapchat, la conversation active est celle de l'onglet affiché en dernier.
 - « Le service d'arrière-plan de LeakZero ne répond pas » : aucun service worker à jour n'écoute (son
   démarrage a échoué, ou il exécute encore une ancienne version après un rebuild). Recharger LeakZero

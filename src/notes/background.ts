@@ -5,7 +5,7 @@ import { createNotesStore, NotesStoreError } from './store';
 import { closeNotesWindow } from './window';
 
 /** Pages the Snapchat content script runs on (manifest.config.ts). */
-const SNAPCHAT_HOSTS = ['www.snapchat.com'];
+const SNAPCHAT_HOSTS = ['www.snapchat.com', 'snapchat.com'];
 
 const id = z.strictObject({ id: noteIdSchema });
 
@@ -65,7 +65,10 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
       const command = contentCommand.safeParse(message);
       if (!command.success) throw new NotesStoreError('Conversation invalide.');
       await requireEnabled();
-      return store.detect(command.data.conversation, sender.tab?.id ?? null);
+      await store.detect(command.data.conversation, sender.tab?.id ?? null);
+      // Temporary diagnostics (Notes detection in real Snapchat Web).
+      console.info(`[LeakZero Notes] conversation ${command.data.conversation.id.slice(0, 8)} enregistrée (onglet ${sender.tab?.id})`);
+      return null;
     }
     const parsed = pageCommand.safeParse(message);
     if (!parsed.success) throw new NotesStoreError('Commande invalide.');
@@ -86,7 +89,11 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
     if (typeof type !== 'string' || !type.startsWith('notes:')) return false;
     handle(message, sender).then(
       (result) => sendResponse({ ok: true, result: result ?? null } satisfies NotesResponse),
-      (error: unknown) => sendResponse({ ok: false, error: errorMessage(error) } satisfies NotesResponse),
+      (error: unknown) => {
+        // Temporary diagnostics (Notes detection in real Snapchat Web).
+        if (type === 'notes:conversation') console.warn(`[LeakZero Notes] conversation refusée : ${errorMessage(error)} (${sender.url ? new URL(sender.url).host : 'sans URL'})`);
+        sendResponse({ ok: false, error: errorMessage(error) } satisfies NotesResponse);
+      },
     );
     return true;
   });
