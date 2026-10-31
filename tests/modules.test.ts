@@ -32,14 +32,14 @@ const validate = (raw: unknown) => validateModuleDeclaration(raw, 'fixture/modul
 
 describe('module discovery', () => {
   it('discovers every src/modules/*/module.yaml, sorted by order', () => {
-    expect(modules.map((module) => module.id)).toEqual(['phone', 'media']);
-    expect(modules.map((module) => module.order)).toEqual([10, 20]);
+    expect(modules.map((module) => module.id)).toEqual(['phone', 'media', 'notes']);
+    expect(modules.map((module) => module.order)).toEqual([10, 20, 30]);
   });
 
   it('declares the settings content scripts read', () => {
     const keys = modules.flatMap((module) => module.allSettings.map((setting) => settingKey(module.id, setting.id)));
     for (const key of Object.values(PROTECTION_FIELDS)) expect(keys).toContain(key);
-    expect(modules.map((module) => module.primary.id)).toEqual(['enabled', 'enabled']);
+    expect(modules.map((module) => module.primary.id)).toEqual(['enabled', 'enabled', 'enabled']);
   });
 
   it('migrates the existing protections with every protection off by default', () => {
@@ -53,6 +53,13 @@ describe('module discovery', () => {
     const media = modules.find((module) => module.id === 'media')!;
     expect(media.settings.map((setting) => [setting.id, setting.default])).toEqual([['enabled', false]]);
     expect(media.advanced).toBeUndefined();
+  });
+
+  it('declares the Notes module, disabled by default, with its "Ouvrir Notes" component', () => {
+    const notes = modules.find((module) => module.id === 'notes')!;
+    expect(notes.settings.map((setting) => [setting.id, setting.type, setting.default])).toEqual([['enabled', 'switch', false]]);
+    expect(notes.component).toBe('OpenNotesButton');
+    expect(bindModuleUi(modules, componentFiles).get('notes')!.Component).toBeTypeOf('function');
   });
 
   it('binds icons and custom components of the real modules', () => {

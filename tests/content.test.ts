@@ -166,6 +166,22 @@ describe('background script', () => {
     expect(storage.api.scripting.executeScript).toHaveBeenCalledWith({ target: { tabId: 1, allFrames: true }, files: ['src/content/index.js'], injectImmediately: true });
   });
 
+  it('injects each content script only into the open tabs its matches cover', async () => {
+    const storage = fakeChrome();
+    (storage.api.runtime as unknown as Record<string, unknown>).getManifest = () => ({
+      content_scripts: [
+        { matches: ['<all_urls>'], js: ['src/content/index.js'] },
+        { matches: ['https://www.snapchat.com/web*'], js: ['src/content/notes.js'] },
+      ],
+    });
+    vi.mocked(storage.api.tabs.query).mockImplementation(async (query) =>
+      (query?.url?.includes('<all_urls>') ? [{ id: 1 }, { id: 2 }] : [{ id: 2 }]) as chrome.tabs.Tab[]);
+    await install('update', storage);
+    await vi.waitFor(() => expect(storage.api.scripting.executeScript).toHaveBeenCalledTimes(3));
+    expect(storage.api.scripting.executeScript).toHaveBeenCalledWith({ target: { tabId: 2, allFrames: true }, files: ['src/content/notes.js'], injectImmediately: true });
+    expect(storage.api.scripting.executeScript).not.toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ tabId: 1 }), files: ['src/content/notes.js'] }));
+  });
+
   it('does not inject when only Chrome was updated (the content scripts are still connected)', async () => {
     const storage = fakeChrome();
     await install('chrome_update', storage);

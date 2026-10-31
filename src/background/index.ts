@@ -1,4 +1,5 @@
 import { modules } from '../modules/registry';
+import { registerNotesBackground } from '../notes/background';
 import { initializeState } from '../shared/state';
 
 /**
@@ -7,13 +8,18 @@ import { initializeState } from '../shared/state';
  * Injecting the current version makes it take over (see content/protection.ts).
  */
 async function injectIntoOpenTabs(): Promise<void> {
-  const files = chrome.runtime.getManifest().content_scripts?.flatMap((script) => script.js ?? []) ?? [];
-  const tabs = await chrome.tabs.query({});
-  await Promise.all(tabs.map((tab) => tab.id === undefined ? undefined : chrome.scripting
-    .executeScript({ target: { tabId: tab.id, allFrames: true }, files, injectImmediately: true })
-    // Pages extensions cannot access (chrome://, the Web Store, discarded tabs…).
-    .catch(() => undefined)));
+  // Each script only goes where the manifest runs it (the Notes script on Snapchat only).
+  await Promise.all((chrome.runtime.getManifest().content_scripts ?? []).map(async (script) => {
+    const tabs = await chrome.tabs.query(script.matches ? { url: script.matches } : {});
+    await Promise.all(tabs.map((tab) => tab.id === undefined ? undefined : chrome.scripting
+      .executeScript({ target: { tabId: tab.id, allFrames: true }, files: script.js ?? [], injectImmediately: true })
+      // Pages extensions cannot access (chrome://, the Web Store, discarded tabs…).
+      .catch(() => undefined)));
+  }));
 }
+
+// Registered at startup, so that Chrome can wake the service worker for Notes messages.
+registerNotesBackground();
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   const { INSTALL, UPDATE } = chrome.runtime.OnInstalledReason;

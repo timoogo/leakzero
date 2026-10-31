@@ -16,6 +16,9 @@ const REINFORCED = settingKey('phone', 'reinforced');
 const MEDIA = settingKey('media', 'enabled');
 
 /** Applies the initialization twice and checks the second run writes nothing. */
+/** The modules that existed before the module layout, which the legacy `settings` key describes. */
+const LEGACY_MODULES = buildRegistry({ './phone/module.yaml': phoneYaml, './media/module.yaml': mediaYaml });
+
 function initialize(items: Record<string, unknown>, reason: 'install' | 'update', registry = modules) {
   const patch = planInitialization(items, registry, reason);
   const result = { ...items, ...patch };
@@ -46,6 +49,7 @@ describe('fresh install', () => {
       [PHONE]: false,
       [REINFORCED]: false,
       [MEDIA]: false,
+      [settingKey('notes', 'enabled')]: false,
     });
     expect(toProtectionSettings(result)).toEqual({ maskPhones: false, reinforcedPhones: false, maskMedia: false });
   });
@@ -61,7 +65,7 @@ describe('migration of the legacy `settings` key', () => {
     ['corrupted values', { maskPhones: 'no', reinforcedPhones: 1, maskMedia: null }, { phone: true, reinforced: false, media: true }],
   ])('%s', (_name, legacy, expected) => {
     const items = legacy === undefined ? {} : { settings: legacy };
-    const { result } = initialize(items, 'update');
+    const { result } = initialize(items, 'update', LEGACY_MODULES);
     expect(result[PHONE]).toBe(expected.phone);
     expect(result[REINFORCED]).toBe(expected.reinforced);
     expect(result[MEDIA]).toBe(expected.media);
@@ -74,7 +78,7 @@ describe('migration of the legacy `settings` key', () => {
   });
 
   it('migrates even when the browser reports an install, if legacy settings exist', () => {
-    const { result } = initialize({ settings: { maskPhones: false, reinforcedPhones: true, maskMedia: true } }, 'install');
+    const { result } = initialize({ settings: { maskPhones: false, reinforcedPhones: true, maskMedia: true } }, 'install', LEGACY_MODULES);
     expect(result).toMatchObject({ [PHONE]: false, [REINFORCED]: true, [MEDIA]: true, [StorageKeys.onboarded]: true });
   });
 

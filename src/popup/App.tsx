@@ -6,6 +6,7 @@ import { modules as registeredModules, type ModuleDefinition } from '../modules/
 import type { SettingValue } from '../modules/schema';
 import { bindModuleUi, componentFiles as registeredComponents, type ModuleComponent } from '../modules/ui';
 import { settingKey, StorageKeys } from '../shared/keys';
+import { toProtectionSettings } from '../shared/settings';
 import { initialValues, initializeState, isModuleActive, moduleValues, stringList } from '../shared/state';
 import { AdvancedView } from './components/AdvancedView';
 import { ModuleAccordion } from './components/ModuleAccordion';
@@ -93,7 +94,9 @@ export default function App({ modules = registeredModules, componentFiles = regi
     );
   }
 
-  const anyActive = modules.some((module) => isModuleActive(items, module));
+  // Only what content scripts mask counts: a module such as Notes protects nothing.
+  const { maskPhones, maskMedia } = toProtectionSettings(items);
+  const anyActive = maskPhones || maskMedia;
   const visible = modules.length >= SEARCH_THRESHOLD ? filterModules(modules, query) : modules;
 
   return (
