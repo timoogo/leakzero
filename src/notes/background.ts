@@ -16,6 +16,7 @@ const contentCommand = z.strictObject({ type: z.literal('notes:conversation'), c
 const pageCommand = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('notes:save'), ...id.shape, html: z.string().max(MAX_HTML_LENGTH) }),
   z.strictObject({ type: z.literal('notes:rename'), ...id.shape, customName: customNameSchema.nullable() }),
+  z.strictObject({ type: z.literal('notes:refreshName'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:trash'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:restore'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:purge'), ...id.shape }),
@@ -42,6 +43,9 @@ function isSnapchat(url: string | undefined): boolean {
   }
 }
 
+/** Snapchat Web tabs whose URL shows the conversation: `/web/<uuid>`, with or without www. */
+const conversationTabs = (id: string) => SNAPCHAT_HOSTS.map((host) => `https://${host}/web/${id}*`);
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -56,6 +60,36 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
   const requireEnabled = async () => {
     if (!(await enabled())) throw new NotesStoreError('Le module Notes est désactivé.');
   };
+
+  /**
+   * « Actualiser le nom Snapchat »: asks the Notes script of each Snapchat tab showing the conversation
+   * for the name it shows now. A tab answers only for the conversation it shows (detect.ts), so a tab
+   * that moved to another conversation, even one with the same name, gives nothing.
+   */
+  async function refreshName(id: string): Promise<{ name: string }> {
+    const note = await store.get(id);
+    const conversationId = note.conversationId;
+    if (!conversationId) throw new NotesStoreError('Cette fiche n’est liée à aucune conversation Snapchat.');
+    const tabs = await api.tabs.query({ url: conversationTabs(conversationId) });
+    if (tabs.length === 0) {
+      throw new NotesStoreError('Aucun onglet Snapchat Web n’affiche cette conversation. Ouvrez-la sur Snapchat Web, puis réessayez ; le nom actuel est conservé.');
+    }
+    let reached = false;
+    for (const tab of tabs) {
+      if (tab.id === undefined) continue;
+      const response = await api.tabs.sendMessage(tab.id, { type: 'notes:readName', conversationId }).catch(() => undefined) as { ok?: boolean; name?: unknown } | undefined;
+      if (!response?.ok) continue;
+      reached = true;
+      const name = conversationSchema.shape.name.safeParse(response.name);
+      if (name.success && name.data !== null) {
+        await store.syncName(id, conversationId, name.data);
+        return { name: name.data };
+      }
+    }
+    throw new NotesStoreError(reached
+      ? 'Snapchat n’affiche pas le nom de cette conversation pour l’instant ; le nom actuel est conservé.'
+      : 'LeakZero ne répond pas dans l’onglet Snapchat. Rechargez l’onglet Snapchat, puis réessayez ; le nom actuel est conservé.');
+  }
 
   async function handle(message: unknown, sender: chrome.runtime.MessageSender): Promise<unknown> {
     if (sender.id !== api.runtime.id) throw new NotesStoreError('Expéditeur inconnu.');
@@ -78,6 +112,7 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
     switch (command.type) {
       case 'notes:save': return store.save(command.id, command.html);
       case 'notes:rename': return store.rename(command.id, command.customName);
+      case 'notes:refreshName': return refreshName(command.id);
       case 'notes:trash': return store.trash(command.id);
       case 'notes:restore': return store.restore(command.id);
       case 'notes:purge': return store.purge(command.id);

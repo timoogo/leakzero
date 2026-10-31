@@ -40,6 +40,13 @@ nom Snapchat continue d'être suivi en dessous (« Nom Snapchat : … ») sans j
 personnalisé ; **Revenir au nom Snapchat** (ou un titre vide) le retire. L'UUID de la conversation ne
 change jamais.
 
+**Actualiser le nom Snapchat** (à côté de « Nom Snapchat », ou du titre sans titre personnalisé) : demande
+le nom affiché maintenant à l'onglet Snapchat Web ouvert sur cette conversation (URL `/web/<uuid>`). Seul
+l'onglet qui affiche réellement ce UUID répond, donc deux conversations homonymes ne sont jamais
+confondues. Sans onglet, sans réponse de LeakZero dans l'onglet ou sans nom affiché, un message
+l'explique et le nom actuel est conservé. Le nom suit aussi Snapchat automatiquement (observation du DOM,
+sans polling) ; un nom masqué ou provisoire ne remplace jamais un nom valide.
+
 **Corbeille** : **Supprimer** y envoie la fiche, sans limite de durée. **Restaurer** ou **Supprimer
 définitivement** (confirmé). Une conversation de la corbeille rouverte sur Snapchat n'est ni restaurée
 ni dupliquée : un bandeau propose **Restaurer la fiche**.

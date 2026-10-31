@@ -167,6 +167,39 @@ describe('conversation tracking', () => {
   });
 });
 
+describe('name requested by the service worker', () => {
+  function ask(conversationId: string) {
+    storage.setSender({});
+    return storage.api.runtime.sendMessage({ type: 'notes:readName', conversationId });
+  }
+
+  beforeEach(() => {
+    // Only the content script listens: no fake service worker answering in its place.
+    (storage.api.runtime.onMessage as unknown as { listeners: Set<unknown> }).listeners.clear();
+  });
+
+  it('answers with the name shown now, for the conversation open in this tab only', async () => {
+    openConversation(ALICE, 'Haehae Timy');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    expect(await ask(ALICE)).toEqual({ ok: true, name: 'Haehae Timy' });
+    // Same name, another conversation: never mixed up.
+    expect(await ask(BOB)).toEqual({ ok: true, name: null });
+    openConversation(ALICE, null);
+    expect(await ask(ALICE)).toEqual({ ok: true, name: null });
+  });
+
+  it('ignores other messages and other senders', async () => {
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    storage.setSender({ url: 'https://www.snapchat.com/web', tab: { id: 3 } as chrome.tabs.Tab });
+    expect(await storage.api.runtime.sendMessage({ type: 'notes:readName', conversationId: ALICE })).toBeUndefined();
+    storage.setSender({});
+    expect(await storage.api.runtime.sendMessage({ type: 'other' })).toBeUndefined();
+  });
+});
+
 describe('real-world chain', () => {
   it('follows an SPA navigation into Snapchat Web, from a page that is not a conversation', async () => {
     history.replaceState({}, '', '/');

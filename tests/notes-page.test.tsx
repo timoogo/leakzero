@@ -249,6 +249,31 @@ describe('Notes page', () => {
     expect(document.querySelector('[data-detected-name]')).toBeNull();
   });
 
+  it('refreshes the Snapchat name from the Snapchat tab, next to « Nom Snapchat », keeping the custom title', async () => {
+    await detect(ALICE, null as unknown as string);
+    const id = readNotes(storage.stored)[0].id;
+    await storage.externalSet({ [`notes:note:${id}`]: { ...readNotes(storage.stored)[0], customName: 'Timothée 27 ans' } });
+    vi.mocked(storage.api.tabs.query).mockResolvedValue([{ id: 9, url: `https://www.snapchat.com/web/${ALICE}` } as chrome.tabs.Tab]);
+    vi.mocked(storage.api.tabs.sendMessage).mockResolvedValue({ ok: true, name: 'Haehae Timy' });
+    await render();
+    expect(document.querySelector('[data-detected-name]')!.textContent).toContain('Conversation 0b1c2d3e');
+    const refresh = document.querySelector('[data-detected-name]')!.querySelector<HTMLButtonElement>('button[aria-label="Actualiser le nom Snapchat"]')!;
+    await click(refresh);
+    await flush();
+    expect(document.querySelector('[data-detected-name]')!.textContent).toContain('Haehae Timy');
+    expect(title()).toBe('Timothée 27 ans');
+    expect(document.querySelector('[data-name-status]')!.textContent).toContain('Nom Snapchat actualisé');
+  });
+
+  it('explains why the Snapchat name could not be refreshed, and keeps it', async () => {
+    await detect(ALICE, 'Alice');
+    await render();
+    await click(button('Actualiser le nom Snapchat'));
+    await flush();
+    expect(document.querySelector('[data-name-status][role="alert"]')!.textContent).toContain('Aucun onglet Snapchat Web');
+    expect(title()).toBe('Alice');
+  });
+
   it('cancels renaming with Échap, and an empty title goes back to the detected name', async () => {
     await detect(ALICE, 'Alice');
     await render();

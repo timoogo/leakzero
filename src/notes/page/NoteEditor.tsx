@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
-import { Bold, Heading2, Heading3, Italic, Link2, List, ListOrdered, Pencil, Undo2, Underline } from 'lucide-react';
+import { Bold, Heading2, Heading3, Italic, Link2, List, ListOrdered, Pencil, RefreshCw, Undo2, Underline } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,20 @@ const STATUS_LABELS: Record<SaveStatus, string> = {
 function NoteTitle({ note }: { note: Note }) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nameStatus, setNameStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  // Asks the Snapchat tab of this conversation for the name it shows now (src/notes/background.ts).
+  const refreshName = () => {
+    setNameStatus(null);
+    sendNotesCommand<{ name: string }>({ type: 'notes:refreshName', id: note.id }).then(
+      ({ name }) => setNameStatus({ ok: true, text: `Nom Snapchat actualisé : ${name}` }),
+      (cause: unknown) => setNameStatus({ ok: false, text: cause instanceof Error ? cause.message : String(cause) }),
+    );
+  };
+  const refreshButton = note.conversationId !== null && (
+    <Button variant="ghost" size="icon" className="size-6" aria-label="Actualiser le nom Snapchat" title="Actualiser le nom Snapchat" onClick={refreshName}>
+      <RefreshCw />
+    </Button>
+  );
   const rename = (customName: string | null) => {
     setError(null);
     sendNotesCommand({ type: 'notes:rename', id: note.id, customName }).then(
@@ -70,10 +84,20 @@ function NoteTitle({ note }: { note: Note }) {
       <div className="min-w-0">
         <h1 data-note-title className="truncate text-lg font-semibold">{displayName(note)}</h1>
         {note.customName !== null && (
-          <p data-detected-name className="truncate text-xs text-muted-foreground">Nom Snapchat : {note.name}</p>
+          <p data-detected-name className="flex items-center gap-1 text-xs text-muted-foreground">
+            <span className="truncate">Nom Snapchat : {note.name}</span>
+            {refreshButton}
+          </p>
         )}
         {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        {nameStatus && (
+          <p data-name-status role={nameStatus.ok ? 'status' : 'alert'} className={cn('text-xs', nameStatus.ok ? 'text-muted-foreground' : 'text-destructive')}>
+            {nameStatus.text}
+          </p>
+        )}
       </div>
+      {/* Without a custom title, the title is the Snapchat name. */}
+      {note.customName === null && refreshButton}
       <Button variant="ghost" size="icon" aria-label="Renommer la fiche" title="Renommer la fiche" onClick={() => setDraft(displayName(note))}>
         <Pencil />
       </Button>

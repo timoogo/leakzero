@@ -79,7 +79,7 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
     last = key;
     lastConversation = conversation;
     const label = `conversation ${conversation.id.slice(0, 8)}`;
-    diagnose('info', `${label} détectée, ${conversation.name === null ? 'nom introuvable (nom provisoire)' : 'nom trouvé'}`);
+    diagnose('info', `${label} détectée, ${conversation.name === null ? `nom introuvable (nom provisoire) : aucun de ${HEADER_NAME.join(' ; ')}, titre de page sans nom` : 'nom trouvé'}`);
     const retry = (reason: string) => {
       diagnose('warn', `envoi de la ${label} au service worker échoué : ${reason}`);
       if (orphaned()) return stop();
@@ -125,6 +125,18 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
     schedule();
   };
 
+  // The service worker asks for the name shown now (« Actualiser le nom Snapchat »): answered only for
+  // the conversation open in this tab, so two conversations with the same name are never mixed up.
+  const onMessage = (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void) => {
+    const request = message as { type?: unknown; conversationId?: unknown } | null;
+    if (request?.type !== 'notes:readName' || sender.id !== api.runtime.id || sender.tab) return false;
+    const conversation = readConversation(doc);
+    const name = conversation && conversation.id === request.conversationId ? conversation.name : null;
+    diagnose('info', `nom demandé : ${name === null ? 'introuvable' : 'trouvé'}`);
+    sendResponse({ ok: true, name });
+    return false;
+  };
+
   const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
     if (area === 'local' && NOTES_ENABLED in changes) setEnabled(changes[NOTES_ENABLED].newValue === true);
   };
@@ -137,6 +149,7 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
     doc.removeEventListener('visibilitychange', onVisibility);
     try {
       api.storage.onChanged.removeListener(onChanged);
+      api.runtime.onMessage.removeListener(onMessage);
     } catch {
       // Extension context already invalidated.
     }
@@ -144,6 +157,7 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
 
   doc.addEventListener('visibilitychange', onVisibility);
   api.storage.onChanged.addListener(onChanged);
+  api.runtime.onMessage.addListener(onMessage);
   api.storage.local.get(NOTES_ENABLED).then(
     (items) => setEnabled(items[NOTES_ENABLED] === true),
     (error: unknown) => {

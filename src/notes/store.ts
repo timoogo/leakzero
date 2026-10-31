@@ -42,8 +42,9 @@ export function createNotesStore(api: typeof chrome = chrome) {
       exclusive(async () => {
         const now = Date.now();
         const note = readNotes(await local.get(null)).find((candidate) => candidate.conversationId === conversation.id);
-        // A name missing from the page never replaces a known one.
-        const name = conversation.name ?? note?.name ?? unnamedConversation(conversation.id);
+        // A name missing from the page, or only the provisional one, never replaces a known one.
+        const shown = conversation.name === unnamedConversation(conversation.id) ? null : conversation.name;
+        const name = shown ?? note?.name ?? unnamedConversation(conversation.id);
         const patch: Record<string, unknown> = { [NotesKeys.active]: { conversationId: conversation.id, name, tabId, detectedAt: now } };
         if (!note) {
           const id = crypto.randomUUID();
@@ -55,6 +56,13 @@ export function createNotesStore(api: typeof chrome = chrome) {
         }
         await local.set(patch);
       }),
+
+    /** The note `id`; throws if it no longer exists. */
+    get: existing,
+
+    /** Name read on Snapchat for the note, if it still follows `conversationId`; the custom title is kept. */
+    syncName: (id: string, conversationId: string, name: string) =>
+      update(id, (note) => (note.conversationId === conversationId && name !== unnamedConversation(conversationId) ? { name } : {})),
 
     /** `null` goes back to the name detected on Snapchat. */
     rename: (id: string, customName: string | null) => update(id, () => ({ customName })),

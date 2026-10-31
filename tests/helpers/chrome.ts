@@ -147,7 +147,10 @@ export function fakeChrome(initial: Record<string, unknown> = {}) {
   const chromeStub = {
     runtime,
     windows: windowsApi,
-    tabs: { query: vi.fn(async (_query?: chrome.tabs.QueryInfo) => [] as { id?: number }[]) },
+    tabs: {
+      query: vi.fn(async (_query?: chrome.tabs.QueryInfo) => [] as { id?: number; url?: string }[]),
+      sendMessage: vi.fn(async (_tabId: number, _message: unknown): Promise<unknown> => { throw new Error('Could not establish connection. Receiving end does not exist.'); }),
+    },
     scripting: { executeScript: vi.fn(async () => []) },
     storage: {
       local,
