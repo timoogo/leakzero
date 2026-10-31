@@ -1,13 +1,7 @@
 import { z } from 'zod';
-import { settingKey } from '../shared/keys';
-import { NotesKeys } from './keys';
+import { CONVERSATION_ID, MAX_NAME_LENGTH, NotesKeys } from './keys';
 
-/** Primary switch of the module (src/modules/notes/module.yaml). */
-export const NOTES_ENABLED = settingKey('notes', 'enabled');
-
-/** Snapchat Web names conversations by a UUID, the last segment of `/web/<id>`. */
-export const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const MAX_NAME_LENGTH = 200;
+export { CONVERSATION_ID, MAX_NAME_LENGTH, NOTES_ENABLED } from './keys';
 /** Of the stored HTML; chrome.storage.local holds 10 MB in all. */
 export const MAX_HTML_LENGTH = 1_000_000;
 

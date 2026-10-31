@@ -1,4 +1,5 @@
-import { CONVERSATION_ID, MAX_NAME_LENGTH, NOTES_ENABLED, type Conversation } from './model';
+import { CONVERSATION_ID, MAX_NAME_LENGTH, NOTES_ENABLED } from './keys';
+import type { Conversation } from './model';
 
 // Snapchat Web: `https://www.snapchat.com/web/<conversation uuid>`. The id only ever comes from the URL;
 // the name from the header of the open conversation, or the page title. Selectors depend on Snapchat's
