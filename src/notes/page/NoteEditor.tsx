@@ -104,10 +104,11 @@ function Toolbar({ editor }: { editor: Editor }) {
   );
 }
 
-export function SaveIndicator({ status, onRetry }: { status: SaveStatus; onRetry: () => void }) {
+export function SaveIndicator({ status, error, onRetry }: { status: SaveStatus; error: string | null; onRetry: () => void }) {
   return (
     <span data-save-status role="status" className={cn('flex items-center gap-2 text-xs', status === 'error' ? 'text-destructive' : 'text-muted-foreground')}>
       {STATUS_LABELS[status]}
+      {status === 'error' && error && <span className="max-w-xs">: {error}</span>}
       {status === 'error' && <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onRetry}>Réessayer</Button>}
     </span>
   );
@@ -127,8 +128,16 @@ interface Props {
  */
 export function NoteEditor({ note, actions, onEditingChange }: Props) {
   const [status, setStatus] = useState<SaveStatus>('saved');
+  const [error, setError] = useState<string | null>(null);
   const autosave = useMemo(
-    () => createAutosave({ delay: SAVE_DELAY_MS, onStatus: setStatus, save: (html) => sendNotesCommand({ type: 'notes:save', id: note.id, html }) }),
+    () => createAutosave({
+      delay: SAVE_DELAY_MS,
+      onStatus: setStatus,
+      save: (html) => sendNotesCommand({ type: 'notes:save', id: note.id, html }).catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause));
+        throw cause;
+      }),
+    }),
     [note.id],
   );
   const editor = useEditor({
@@ -160,7 +169,7 @@ export function NoteEditor({ note, actions, onEditingChange }: Props) {
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-3">
         <h1 data-note-title className="min-w-0 flex-1 truncate text-lg font-semibold">{note.name}</h1>
-        <SaveIndicator status={status} onRetry={() => void autosave.flush()} />
+        <SaveIndicator status={status} error={error} onRetry={() => void autosave.flush()} />
         <div className="flex items-center gap-1">
           {actions(() => {
             void autosave.flush();

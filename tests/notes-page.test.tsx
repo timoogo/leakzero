@@ -174,6 +174,22 @@ describe('Notes page', () => {
     expect(status()).toBe('Sauvegardé');
   });
 
+  it('explains a save that fails because no service worker answers, and keeps the text', async () => {
+    await detect(ALICE, 'Alice');
+    (storage.api.runtime.onMessage as unknown as { listeners: Set<unknown> }).listeners.clear();
+    await render();
+    await type('texte');
+    await wait(900);
+    expect(status()).toContain('Erreur de sauvegarde');
+    expect(status()).toContain('rechargez LeakZero');
+    expect(editor().getHTML()).toBe('<p>texte</p>');
+    registerNotesBackground(storage.api);
+    await click(button('Réessayer'));
+    await flush();
+    expect(stored('Alice').html).toBe('<p>texte</p>');
+    expect(status()).toBe('Sauvegardé');
+  });
+
   it('formats text: headings, bold, italic, underline, lists, links', async () => {
     await detect(ALICE, 'Alice');
     await render();
