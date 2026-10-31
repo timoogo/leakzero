@@ -4,12 +4,21 @@ Une fiche de notes par conversation Snapchat Web, dans une fenêtre séparée. T
 (`chrome.storage.local`) : pas de serveur, de compte ni de synchronisation, et aucune note n'est transmise.
 
 ## Utilisation
-1. Popup → **Notes** → activer **Activer Notes** (désactivé par défaut), puis **Ouvrir Notes**.
+1. Popup → **Notes** → activer **Activer Notes** (désactivé par défaut), puis **Ouvrir Notes** (fenêtre
+   flottante). Notes s'ouvre aussi directement dans un onglet : `chrome-extension://<id>/notes.html`
+   (identifiant affiché dans `chrome://extensions`), à mettre en favori par exemple. Fenêtre et onglets
+   montrent les mêmes fiches ; une modification faite dans l'un apparaît dans les autres.
 2. Ouvrir une conversation sur `https://www.snapchat.com/web/…` : sa fiche (vide) est créée et
    sélectionnée. Le suivi continue fenêtre fermée, tant que le module est activé.
 3. Écrire : titres, gras, italique, souligné, listes, liens (http, https, mailto ; pas d'images).
    Sauvegarde automatique 300 ms après la dernière frappe ; l'état est affiché (*Modification en cours…*,
    *Sauvegarde…*, *Sauvegardé*, *Erreur de sauvegarde* avec **Réessayer**).
+
+**Dernière conversation** : la dernière conversation détectée (UUID de l'URL, nom, onglet source) est
+mémorisée dans le stockage et reste la conversation active jusqu'à ce qu'une autre conversation valide
+soit détectée, même si Snapchat la masque ensuite (fenêtre quittée, popup ouvert), si l'onglet est fermé
+ou si le service worker redémarre. Notes s'ouvre donc sur sa fiche, prête à l'édition ; sans conversation
+détectée, un message l'indique.
 
 **Fenêtre** : une seule ; « Ouvrir Notes » la remet au premier plan (et la restaure si elle est réduite).
 Position et taille sont reprises à la réouverture, y compris sur un autre écran (taille par défaut si cet
@@ -49,7 +58,8 @@ la conversation si une autre fiche la suit déjà). Choix global, modifiable fic
 | `src/content/notes.ts`, `src/notes/detect.ts` | détection de la conversation | Snapchat Web |
 | `src/notes/background.ts` | commandes, autorisation, fermeture à la désactivation | service worker |
 | `src/notes/store.ts`, `importing.ts` | écritures des fiches (seul écrivain) | service worker |
-| `src/notes/window.ts` | fenêtre unique, position et taille | service worker, page |
+| `notes.html` | page Notes (fenêtre flottante ou onglet) | page |
+| `src/notes/window.ts` | fenêtre unique, position et taille | popup, service worker, page |
 | `src/notes/model.ts`, `keys.ts` | schéma (Zod) et clés de stockage | tous |
 | `src/notes/page/` (`NotesApp`, `NoteList`, `TrashList`, `NoteEditor`, `ArchiveActions`) | fenêtre Notes | page |
 | `src/notes/follow.ts`, `list.ts`, `autosave.ts` | suivi, tri, sauvegarde différée (fonctions pures) | page |
@@ -60,7 +70,9 @@ suivi par `storage.onChanged`. Les écritures passent par des commandes `chrome.
 (`notes:*`, `src/notes/messages.ts`) au service worker, qui les exécute une à une, chacune en un seul
 `storage.local.set` atomique : deux onglets Snapchat et la fenêtre ne peuvent pas s'écraser. Rien
 n'est gardé en mémoire : le service worker peut s'arrêter entre deux commandes, ses écouteurs sont
-enregistrés au démarrage et la fenêtre est retrouvée par `runtime.getContexts` (Chrome 116+).
+enregistrés au démarrage. Le popup ouvre la fenêtre lui-même (`chrome.windows`), sans passer par le
+service worker ; elle est retrouvée par `runtime.getContexts` (Chrome 116+) parmi les fenêtres de type
+`popup`, un onglet Notes n'étant pas la fenêtre flottante. Seule cette dernière mémorise sa position.
 Le script de protection (`src/content/index.ts`) ne communique toujours rien.
 
 **Autorisation.** Le service worker n'accepte des pages web que `notes:conversation`, et seulement
@@ -95,4 +107,8 @@ Limites : 1 Mo de HTML par fiche ; `chrome.storage.local` est limité à 10 Mo a
 - Le script n'est injecté qu'au chargement d'une page `www.snapchat.com/web*` ; arriver sur Snapchat Web
   par une navigation interne depuis une autre page de snapchat.com nécessite de recharger l'onglet.
 - Avec plusieurs onglets Snapchat, la conversation active est celle de l'onglet affiché en dernier.
+- « Le service d'arrière-plan de LeakZero ne répond pas » : aucun service worker à jour n'écoute (son
+  démarrage a échoué, ou il exécute encore une ancienne version après un rebuild). Recharger LeakZero
+  dans `chrome://extensions` et consulter ses « Erreurs ». La sauvegarde reprend avec **Réessayer**.
+- Désactiver le module ferme la fenêtre flottante, pas un onglet Notes ouvert à la main.
 - Une fermeture brutale du navigateur dans les 300 ms qui suivent une frappe peut perdre cette frappe.

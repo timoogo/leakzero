@@ -164,7 +164,8 @@ Les onglets déjà ouverts sont protégés dès l'installation ou la mise à jou
   modules, jamais d'indices) et restaurées à chaque ouverture du popup et au retour des paramètres avancés.
 - **« Aucune protection active »** : avertissement discret, non bloquant, tant qu'aucune protection
   (numéros, médias) n'est active ; le module Notes n'en est pas une.
-- **Notes** : bouton « Ouvrir Notes » dans son accordion quand le module est activé.
+- **Notes** : bouton « Ouvrir Notes » dans son accordion quand le module est activé (fenêtre flottante) ;
+  accès direct en onglet par `chrome-extension://<id>/notes.html`.
 - **Recherche** : affichée à partir de 5 modules ; filtre par titre et description (sans casse ni accents),
   sans toucher aux réglages ni aux sections mémorisées, en conservant l'ordre.
 - **Accueil** : affiché à la première utilisation (nouvelle installation) ; « Commencer » le mémorise.
