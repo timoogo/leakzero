@@ -1,5 +1,5 @@
 import { noteKey, NotesKeys } from './keys';
-import { readNotes, readOrder, type Conversation, type Note } from './model';
+import { readNotes, readOrder, unnamedConversation, type Conversation, type Note } from './model';
 
 export class NotesStoreError extends Error {
   override name = 'NotesStoreError';
@@ -41,14 +41,16 @@ export function createNotesStore(api: typeof chrome = chrome) {
       exclusive(async () => {
         const now = Date.now();
         const note = readNotes(await local.get(null)).find((candidate) => candidate.conversationId === conversation.id);
-        const patch: Record<string, unknown> = { [NotesKeys.active]: { conversationId: conversation.id, name: conversation.name, detectedAt: now } };
+        // A name missing from the page never replaces a known one.
+        const name = conversation.name ?? note?.name ?? unnamedConversation(conversation.id);
+        const patch: Record<string, unknown> = { [NotesKeys.active]: { conversationId: conversation.id, name, detectedAt: now } };
         if (!note) {
           const id = crypto.randomUUID();
           patch[noteKey(id)] = {
-            id, conversationId: conversation.id, name: conversation.name, html: '', createdAt: now, updatedAt: now, lastSeenAt: now, trashedAt: null,
+            id, conversationId: conversation.id, name, html: '', createdAt: now, updatedAt: now, lastSeenAt: now, trashedAt: null,
           } satisfies Note;
         } else if (note.trashedAt === null) {
-          patch[noteKey(note.id)] = { ...note, name: conversation.name, lastSeenAt: now } satisfies Note;
+          patch[noteKey(note.id)] = { ...note, name, lastSeenAt: now } satisfies Note;
         }
         await local.set(patch);
       }),

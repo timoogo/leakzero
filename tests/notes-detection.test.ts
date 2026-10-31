@@ -1,0 +1,187 @@
+// @vitest-environment jsdom
+// @vitest-environment-options {"url": "https://www.snapchat.com/web"}
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerNotesBackground } from '../src/notes/background';
+import { readConversation, startConversationTracking } from '../src/notes/detect';
+import { activeConversation, NOTES_ENABLED, readNotes } from '../src/notes/model';
+import { fakeChrome } from './helpers/chrome';
+
+const ALICE = '0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
+const BOB = '2c1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
+const CAROL = '3d1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
+
+/** Snapchat Web after opening a conversation: URL first, then the conversation pane. */
+function openConversation(id: string, name: string | null) {
+  history.pushState({}, '', `/web/${id}`);
+  document.body.innerHTML = `
+    <nav><div class="list-item">Bob<span>Salut, mon numéro est 06 00 00 00 00</span></div></nav>
+    <main>${name === null ? '' : `<header><h2>${name}</h2></header>`}<ul><li>message privé</li></ul></main>`;
+}
+
+let storage: ReturnType<typeof fakeChrome>;
+let received: unknown[];
+let stop: (() => void) | undefined;
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  storage = fakeChrome({ [NOTES_ENABLED]: true });
+  storage.setSender({ url: 'https://www.snapchat.com/web', tab: { id: 3 } as chrome.tabs.Tab });
+  received = [];
+  storage.api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    received.push(message);
+    sendResponse({ ok: true, result: null });
+    return true;
+  });
+  history.replaceState({}, '', '/web');
+  document.body.innerHTML = '';
+  document.title = 'Snapchat';
+});
+
+afterEach(() => {
+  stop?.();
+  stop = undefined;
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+const settle = async () => {
+  await vi.advanceTimersByTimeAsync(1000);
+};
+const reported = () => received.map((message) => (message as { conversation: unknown }).conversation);
+
+describe('readConversation', () => {
+  it('takes the id from the /web/<id> URL and the name from the conversation header', () => {
+    openConversation(ALICE, 'Alice');
+    expect(readConversation(document)).toEqual({ id: ALICE, name: 'Alice' });
+  });
+
+  it('finds no conversation outside a /web/<uuid> URL: never invents an id', () => {
+    for (const path of ['/web', '/web/', '/web/settings', '/web/123', `/other/${ALICE}`]) {
+      history.replaceState({}, '', path);
+      expect(readConversation(document), path).toBeNull();
+    }
+  });
+
+  it('reports no name rather than guessing one, and never reads messages or the conversation list', () => {
+    openConversation(ALICE, null);
+    expect(readConversation(document)).toEqual({ id: ALICE, name: null });
+  });
+
+  it('falls back to the page title, without the Snapchat suffix', () => {
+    openConversation(ALICE, null);
+    document.title = '(2) Alice | Snapchat';
+    expect(readConversation(document)).toEqual({ id: ALICE, name: 'Alice' });
+    document.title = 'Snapchat';
+    expect(readConversation(document)).toEqual({ id: ALICE, name: null });
+  });
+
+  it('ignores header text that cannot be a name (too long)', () => {
+    openConversation(ALICE, 'x'.repeat(300));
+    expect(readConversation(document)!.name).toBeNull();
+  });
+});
+
+describe('conversation tracking', () => {
+  it('reports the open conversation, then each change, once', async () => {
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    openConversation(BOB, 'Bob');
+    await settle();
+    document.querySelector('main ul')!.append(document.createElement('li'));
+    await settle();
+    expect(reported()).toEqual([{ id: ALICE, name: 'Alice' }, { id: BOB, name: 'Bob' }]);
+  });
+
+  it('reports only the last conversation of a quick succession', async () => {
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    openConversation(ALICE, 'Alice');
+    await vi.advanceTimersByTimeAsync(50);
+    openConversation(BOB, 'Bob');
+    await vi.advanceTimersByTimeAsync(50);
+    openConversation(CAROL, 'Carol');
+    await settle();
+    expect(reported()).toEqual([{ id: CAROL, name: 'Carol' }]);
+  });
+
+  it('reports the name once the header appears', async () => {
+    openConversation(ALICE, null);
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    document.querySelector('main')!.insertAdjacentHTML('afterbegin', '<header><h2>Alice</h2></header>');
+    await settle();
+    expect(reported()).toEqual([{ id: ALICE, name: null }, { id: ALICE, name: 'Alice' }]);
+  });
+
+  it('reports again when the tab comes back to the front (several Snapchat tabs)', async () => {
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settle();
+    expect(reported()).toHaveLength(2);
+  });
+
+  it('does nothing while the module is disabled, and resumes when it is enabled', async () => {
+    await storage.externalSet({ [NOTES_ENABLED]: false });
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    openConversation(BOB, 'Bob');
+    await settle();
+    expect(received).toEqual([]);
+    await storage.externalSet({ [NOTES_ENABLED]: true });
+    await settle();
+    expect(reported()).toEqual([{ id: BOB, name: 'Bob' }]);
+    await storage.externalSet({ [NOTES_ENABLED]: false });
+    openConversation(CAROL, 'Carol');
+    await settle();
+    expect(reported()).toHaveLength(1);
+  });
+
+  it('stops for good once the extension was reloaded or updated (orphaned script)', async () => {
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    storage.invalidate();
+    openConversation(BOB, 'Bob');
+    await settle();
+    expect(reported()).toEqual([{ id: ALICE, name: 'Alice' }]);
+  });
+});
+
+describe('content script → service worker', () => {
+  it('creates one note per conversation and follows the active one, also with the Notes window closed', async () => {
+    storage = fakeChrome({ [NOTES_ENABLED]: true });
+    storage.setSender({ url: 'https://www.snapchat.com/web', tab: { id: 3 } as chrome.tabs.Tab });
+    registerNotesBackground(storage.api);
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    openConversation(BOB, 'Bob');
+    await settle();
+    openConversation(ALICE, 'Alice');
+    await settle();
+    expect(readNotes(storage.stored).map((note) => note.name).sort()).toEqual(['Alice', 'Bob']);
+    expect(activeConversation(storage.stored)).toMatchObject({ conversationId: ALICE });
+    expect(storage.windows.size).toBe(0);
+  });
+
+  it('names a conversation whose name is not found yet, and keeps a known name when it is missing', async () => {
+    storage = fakeChrome({ [NOTES_ENABLED]: true });
+    storage.setSender({ url: 'https://www.snapchat.com/web', tab: { id: 3 } as chrome.tabs.Tab });
+    registerNotesBackground(storage.api);
+    openConversation(ALICE, null);
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    expect(readNotes(storage.stored)[0].name).toBe('Conversation 0b1c2d3e');
+    openConversation(ALICE, 'Alice');
+    await settle();
+    openConversation(BOB, 'Bob');
+    await settle();
+    openConversation(ALICE, null);
+    await settle();
+    expect(readNotes(storage.stored).find((note) => note.conversationId === ALICE)!.name).toBe('Alice');
+  });
+});

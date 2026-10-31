@@ -5,7 +5,7 @@ import { createNotesStore, NotesStoreError } from './store';
 import { closeNotesWindow, openNotesWindow } from './window';
 
 /** Pages the Snapchat content script runs on (manifest.config.ts). */
-const SNAPCHAT_HOSTS = ['www.snapchat.com', 'web.snapchat.com'];
+const SNAPCHAT_HOSTS = ['www.snapchat.com'];
 
 const id = z.strictObject({ id: noteIdSchema });
 

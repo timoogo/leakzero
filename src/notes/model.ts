@@ -14,7 +14,8 @@ export const MAX_HTML_LENGTH = 1_000_000;
 export const noteIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
 export const conversationSchema = z.strictObject({
   id: z.string().regex(CONVERSATION_ID),
-  name: z.string().trim().min(1).max(MAX_NAME_LENGTH),
+  /** Null while Snapchat does not show it (yet). */
+  name: z.string().trim().min(1).max(MAX_NAME_LENGTH).nullable(),
 });
 const timestamp = z.number().int().nonnegative();
 
@@ -43,6 +44,11 @@ export interface ActiveConversation {
   conversationId: string;
   name: string;
   detectedAt: number;
+}
+
+/** Name of a conversation whose name was never found on the page. */
+export function unnamedConversation(conversationId: string): string {
+  return `Conversation ${conversationId.slice(0, 8)}`;
 }
 
 /** Every valid note of `items` (a chrome.storage.local snapshot); corrupt entries are skipped. */

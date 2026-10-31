@@ -55,7 +55,7 @@ function moduleYaml(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [moduleYaml(), react(), tailwindcss(), crx({ manifest, contentScripts: { standaloneFiles: ['src/content/index.ts'] } })],
+  plugins: [moduleYaml(), react(), tailwindcss(), crx({ manifest, contentScripts: { standaloneFiles: ['src/content/index.ts', 'src/content/notes.ts'] } })],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   test: { environment: 'node', setupFiles: ['tests/setup.ts'] },
 });
