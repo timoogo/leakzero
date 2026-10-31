@@ -2,7 +2,7 @@
 // @vitest-environment-options {"url": "https://www.snapchat.com/web"}
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerNotesBackground } from '../src/notes/background';
-import { readConversation, startConversationTracking } from '../src/notes/detect';
+import { conversationHeaderName, readConversation, startConversationTracking } from '../src/notes/detect';
 import { activeConversation, NOTES_ENABLED, readNotes } from '../src/notes/model';
 import { fakeChrome } from './helpers/chrome';
 
@@ -10,12 +10,39 @@ const ALICE = '0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
 const BOB = '2c1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
 const CAROL = '3d1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
 
-/** Snapchat Web after opening a conversation: URL first, then the conversation pane. */
+/** Snapchat's generated class names and ids: different at every render, never usable. */
+const random = () => Math.random().toString(36).slice(2, 8);
+const cls = () => `${random()} ${random()}`;
+
+/**
+ * The header of the open conversation, as Snapchat Web structures it: a listbox control showing the
+ * name (conversation menu) next to « Close Chat ». No semantic header element, generated classes only.
+ */
+function chatHeader(name: string) {
+  return `<div class="${cls()}" data-chat-header>
+      <div class="${cls()}"><span class="${cls()}" aria-hidden="true"></span></div>
+      <div class="${cls()}">
+        <div class="${cls()}" role="combobox" aria-haspopup="listbox" aria-expanded="false" id="downshift-${random()}-toggle-button" aria-labelledby="downshift-${random()}-label">
+          <span class="${cls()}">${name}</span><span class="${cls()}" aria-hidden="true"></span>
+        </div>
+      </div>
+      <button type="button" class="${cls()}" title="Close Chat"><svg></svg></button>
+    </div>`;
+}
+
+/** Snapchat Web after opening a conversation: URL first, then the page with its sidebar. */
 function openConversation(id: string, name: string | null) {
   history.pushState({}, '', `/web/${id}`);
   document.body.innerHTML = `
-    <nav><div class="list-item">Bob<span>Salut, mon numéro est 06 00 00 00 00</span></div></nav>
-    <main>${name === null ? '' : `<header><h2>${name}</h2></header>`}<ul><li>message privé</li></ul></main>`;
+    <div class="${cls()}">
+      <nav class="${cls()}">
+        <div class="${cls()}" role="combobox" aria-haspopup="listbox" id="downshift-${random()}-toggle-button"><span>Mon statut</span></div>
+        <ul class="${cls()}" role="list">
+          <li class="${cls()}"><div class="${cls()}" role="button"><span>Bob</span><span>Salut, mon numéro est 06 00 00 00 00</span></div></li>
+        </ul>
+      </nav>
+      <div class="${cls()}" data-chat>${name === null ? '' : chatHeader(name)}<ul class="${cls()}"><li>message privé</li></ul></div>
+    </div>`;
 }
 
 let storage: ReturnType<typeof fakeChrome>;
@@ -81,14 +108,88 @@ describe('readConversation', () => {
   });
 });
 
+describe('conversationHeaderName', () => {
+  it('reads the name from the listbox control of the header holding « Close Chat », whatever the classes and ids', () => {
+    for (let render = 0; render < 5; render++) {
+      openConversation(ALICE, 'Haehae Timy');
+      expect(conversationHeaderName(document)).toBe('Haehae Timy');
+    }
+  });
+
+  it('never takes a listbox control outside the conversation header (sidebar, menus)', () => {
+    openConversation(ALICE, null);
+    // Sidebar listbox present, no conversation header: no name.
+    expect(conversationHeaderName(document)).toBeNull();
+    document.body.insertAdjacentHTML('beforeend', `<div class="${cls()}"><div aria-haspopup="listbox">Autre menu</div></div>`);
+    expect(conversationHeaderName(document)).toBeNull();
+  });
+
+  it('does not climb from a header without a name control to the sidebar one', () => {
+    openConversation(ALICE, 'Alice');
+    document.querySelector('[data-chat-header] [aria-haspopup="listbox"]')!.remove();
+    expect(conversationHeaderName(document)).toBeNull();
+    expect(readConversation(document)).toEqual({ id: ALICE, name: null });
+  });
+
+  it('gives no name when the header is ambiguous', () => {
+    openConversation(ALICE, 'Alice');
+    // Two name controls in the header.
+    const header = document.querySelector('[data-chat-header]')!;
+    header.insertAdjacentHTML('afterbegin', '<div aria-haspopup="listbox"><span>Bob</span></div>');
+    expect(conversationHeaderName(document)).toBeNull();
+    // Two open conversations.
+    openConversation(ALICE, 'Alice');
+    document.querySelector('[data-chat]')!.insertAdjacentHTML('beforeend', chatHeader('Bob'));
+    expect(conversationHeaderName(document)).toBeNull();
+    // A control with no text.
+    openConversation(ALICE, '   ');
+    expect(conversationHeaderName(document)).toBeNull();
+  });
+
+  it('is used by readConversation, for the conversation of the URL', () => {
+    openConversation(ALICE, 'Haehae Timy');
+    expect(readConversation(document)).toEqual({ id: ALICE, name: 'Haehae Timy' });
+    history.replaceState({}, '', '/web');
+    expect(readConversation(document)).toBeNull();
+  });
+});
+
 describe('conversation tracking', () => {
+  it('follows a rename shown in the header, without polling', async () => {
+    const timeout = vi.spyOn(globalThis, 'setTimeout');
+    openConversation(ALICE, 'Haehae Timy');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    const calls = timeout.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    // Nothing scheduled while the page does not change.
+    expect(timeout.mock.calls.length).toBe(calls);
+    document.querySelector('[data-chat-header] [aria-haspopup="listbox"] span')!.textContent = 'Timy';
+    await settle();
+    expect(reported()).toEqual([{ id: ALICE, name: 'Haehae Timy' }, { id: ALICE, name: 'Timy' }]);
+  });
+
+  it('never gives the new conversation the name still shown for the previous one (URL changed first)', async () => {
+    openConversation(ALICE, 'Alice');
+    stop = startConversationTracking(document, storage.api);
+    await settle();
+    // Snapchat updates the URL, then the header later.
+    history.pushState({}, '', `/web/${BOB}`);
+    document.querySelector('[data-chat] ul')!.innerHTML = '<li>chargement</li>';
+    await settle();
+    expect(reported()).toEqual([{ id: ALICE, name: 'Alice' }, { id: BOB, name: null }]);
+    document.querySelector('[data-chat-header] [aria-haspopup="listbox"] span')!.textContent = 'Bob';
+    await settle();
+    expect(reported().at(-1)).toEqual({ id: BOB, name: 'Bob' });
+  });
+
   it('reports the open conversation, then each change, once', async () => {
     openConversation(ALICE, 'Alice');
     stop = startConversationTracking(document, storage.api);
     await settle();
     openConversation(BOB, 'Bob');
     await settle();
-    document.querySelector('main ul')!.append(document.createElement('li'));
+    document.querySelector('[data-chat] > ul')!.append(document.createElement('li'));
     await settle();
     expect(reported()).toEqual([{ id: ALICE, name: 'Alice' }, { id: BOB, name: 'Bob' }]);
   });
@@ -109,7 +210,7 @@ describe('conversation tracking', () => {
     openConversation(ALICE, null);
     stop = startConversationTracking(document, storage.api);
     await settle();
-    document.querySelector('main')!.insertAdjacentHTML('afterbegin', '<header><h2>Alice</h2></header>');
+    document.querySelector('[data-chat]')!.insertAdjacentHTML('afterbegin', chatHeader('Alice'));
     await settle();
     expect(reported()).toEqual([{ id: ALICE, name: null }, { id: ALICE, name: 'Alice' }]);
   });
@@ -121,7 +222,7 @@ describe('conversation tracking', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     document.dispatchEvent(new Event('visibilitychange'));
     window.dispatchEvent(new Event('blur'));
-    document.querySelector('main header')!.remove();
+    document.querySelector('[data-chat-header]')!.remove();
     await settle();
     history.pushState({}, '', '/web');
     document.body.innerHTML = '<main></main>';

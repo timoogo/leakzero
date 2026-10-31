@@ -101,7 +101,12 @@ Snapchat. Une conversation a au plus une fiche. Les mises à jour de l'extension
 
 **Détection.** L'identifiant vient uniquement de l'URL `/web/<uuid>` : sans UUID, aucune fiche n'est
 créée (jamais de clé par nom, donc deux conversations homonymes restent distinctes). Le nom vient de
-l'en-tête de la conversation (`main header h1–h3`) ou, à défaut, du titre de la page ; s'il est
+l'en-tête de la conversation, repéré uniquement par des ancres sémantiques, jamais par les classes ou
+`id` générés de Snapchat : le texte de l'unique contrôle `[aria-haspopup="listbox"]` du plus petit
+conteneur autour de `button[title="Close Chat"]` (`conversationHeaderName`). Plusieurs « Close Chat »,
+plusieurs contrôles dans l'en-tête ou un contrôle de la liste latérale donnent « pas de nom » plutôt
+qu'un mauvais nom, et un en-tête encore affiché pour la conversation précédente (URL changée avant lui)
+ne nomme pas la nouvelle. À défaut, le nom vient du titre de la page ; s'il est
 introuvable, la fiche s'appelle « Conversation <8 premiers caractères> » et prend le vrai nom dès qu'il
 apparaît, et un nom connu n'est jamais effacé. Messages, médias et liste des conversations ne sont
 jamais lus. Un seul `MutationObserver`, regroupé toutes les 250 ms, n'envoie qu'en cas de changement ;
@@ -117,8 +122,8 @@ portent une CSP `default-src 'none'`.
 Limites : 1 Mo de HTML par fiche ; `chrome.storage.local` est limité à 10 Mo au total.
 
 ## Limites connues
-- Les sélecteurs du nom dépendent du DOM de Snapchat Web : s'il change, les fiches gardent leur dernier
-  nom connu (ou le nom provisoire) jusqu'à adaptation de `HEADER_NAME` dans `src/notes/detect.ts`.
+- Le nom dépend de ces ancres de Snapchat Web (`CLOSE_CHAT`, `NAME_CONTROL` dans `src/notes/detect.ts`) :
+  si elles changent, les fiches gardent leur dernier nom connu (ou le nom provisoire).
 - Le script est injecté sur toutes les pages `snapchat.com` et `www.snapchat.com` (Snapchat Web peut être
   atteint sans rechargement) mais n'agit que sur `/web/<uuid>`.
 - Diagnostic (temporaire) : la console de l'onglet Snapchat affiche les étapes `[LeakZero Notes]`

@@ -2,12 +2,20 @@ import { CONVERSATION_ID, MAX_NAME_LENGTH, NOTES_ENABLED } from './keys';
 import type { Conversation } from './model';
 
 // Snapchat Web: `https://www.snapchat.com/web/<conversation uuid>`. The id only ever comes from the URL;
-// the name from the header of the open conversation, or the page title. Selectors depend on Snapchat's
-// markup: when it changes, the name is reported as missing (never guessed) and the note keeps the
-// last name found. Nothing else is read: no messages, no media, no conversation list.
+// the name from the header of the open conversation, or the page title. Only structural and semantic
+// anchors are used, never Snapchat's generated classes or ids (`downshift-636-…`): when the markup
+// changes, the name is reported as missing (never guessed) and the note keeps the last name found.
+// Nothing else is read: no messages, no media, no conversation list.
 
 const PATH = /^\/web\/([^/]+)\/?$/;
-const HEADER_NAME = ['main header :is(h1, h2, h3)', '[role="main"] header :is(h1, h2, h3)'];
+/** Closes the open conversation: only its header has it. */
+const CLOSE_CHAT = 'button[title="Close Chat"]';
+/** The conversation menu of that header, labelled with the conversation name. */
+const NAME_CONTROL = '[aria-haspopup="listbox"]';
+/** How far above « Close Chat » the header may extend. */
+const MAX_HEADER_DEPTH = 4;
+/** Containers of the conversation list and menus, never the header. */
+const OUTSIDE_HEADER = 'nav, [role="navigation"], [role="list"], [role="listbox"], ul, ol';
 const TITLE_DECORATIONS = /^\(\d+\)\s*|\s*[|·-]\s*Snapchat\s*$/g;
 /** Mutations are handled at most this often: Snapchat's DOM changes with every message. */
 const DEBOUNCE_MS = 250;
@@ -28,15 +36,44 @@ function asName(text: string | null | undefined): string | null {
   return name.length > 0 && name.length <= MAX_NAME_LENGTH && name !== 'Snapchat' ? name : null;
 }
 
+/**
+ * The name shown in the header of the open conversation: the text of the single listbox control in the
+ * smallest container around « Close Chat ». Null when there is no such header, or when it is ambiguous
+ * (several « Close Chat », several controls in the header), rather than a wrong name.
+ */
+export function conversationHeaderName(doc: Document): string | null {
+  const control = headerNameControl(doc);
+  return control ? visibleText(control) : null;
+}
+
+function headerNameControl(doc: Document): Element | null {
+  const close = doc.querySelectorAll(CLOSE_CHAT);
+  if (close.length !== 1) return null;
+  let container = close[0].parentElement;
+  for (let depth = 0; container && container !== doc.body && depth < MAX_HEADER_DEPTH; depth++) {
+    const controls = [...container.querySelectorAll(NAME_CONTROL)];
+    if (controls.length > 1) return null;
+    if (controls.length === 1) return controls[0].closest(OUTSIDE_HEADER) ? null : controls[0];
+    container = container.parentElement;
+  }
+  return null;
+}
+
+/** Text of `element`, without what is hidden from assistive technologies (icons). */
+function visibleText(element: Element): string | null {
+  const parts: string[] = [];
+  const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.parentElement?.closest('[aria-hidden="true"]')) parts.push(node.textContent ?? '');
+  }
+  return asName(parts.join(' '));
+}
+
 /** The conversation open in `doc`, or null outside a conversation. */
 export function readConversation(doc: Document): Conversation | null {
   const id = PATH.exec(doc.location.pathname)?.[1];
   if (!id || !CONVERSATION_ID.test(id)) return null;
-  for (const selector of HEADER_NAME) {
-    const name = asName(doc.querySelector(selector)?.textContent);
-    if (name) return { id, name };
-  }
-  return { id, name: asName(doc.title.replace(TITLE_DECORATIONS, '')) };
+  return { id, name: conversationHeaderName(doc) ?? asName(doc.title.replace(TITLE_DECORATIONS, '')) };
 }
 
 /**
@@ -48,6 +85,8 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
   let stopped = false;
   let last: string | undefined;
   let lastConversation: Conversation | null = null;
+  /** The header control that gave `lastConversation` its name. */
+  let lastNameSource: Element | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const observer = new MutationObserver(() => schedule());
   lastLog = undefined;
@@ -66,7 +105,13 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
     if (stopped || !enabled) return;
     // Extension reloaded or updated: the new version's script takes over (see background/index.ts).
     if (orphaned()) return stop();
-    const conversation = readConversation(doc);
+    const read = readConversation(doc);
+    // Snapchat changes the URL before the header: the same header, still showing the previous
+    // conversation's name, never names the new one.
+    const source = headerNameControl(doc);
+    const stale = read !== null && lastConversation !== null && read.id !== lastConversation.id
+      && read.name === lastConversation.name && source !== null && source === lastNameSource;
+    const conversation = read && stale ? { ...read, name: null } : read;
     // Snapchat may hide the conversation (window left, popup opened…): the last one stays the active
     // one until another valid conversation is open; a name that disappears is not reported either.
     if (!conversation) {
@@ -78,8 +123,9 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
     if (key === last) return;
     last = key;
     lastConversation = conversation;
+    lastNameSource = conversation.name === null ? null : source;
     const label = `conversation ${conversation.id.slice(0, 8)}`;
-    diagnose('info', `${label} détectée, ${conversation.name === null ? `nom introuvable (nom provisoire) : aucun de ${HEADER_NAME.join(' ; ')}, titre de page sans nom` : 'nom trouvé'}`);
+    diagnose('info', `${label} détectée, ${conversation.name === null ? `nom introuvable (nom provisoire) : pas d’en-tête unique avec ${CLOSE_CHAT} et ${NAME_CONTROL}, titre de page sans nom` : 'nom trouvé'}`);
     const retry = (reason: string) => {
       diagnose('warn', `envoi de la ${label} au service worker échoué : ${reason}`);
       if (orphaned()) return stop();
@@ -130,7 +176,13 @@ export function startConversationTracking(doc: Document, api: typeof chrome = ch
   const onMessage = (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void) => {
     const request = message as { type?: unknown; conversationId?: unknown } | null;
     if (request?.type !== 'notes:readName' || sender.id !== api.runtime.id || sender.tab) return false;
-    const conversation = readConversation(doc);
+    const read = readConversation(doc);
+    // Snapchat changes the URL before the header: the same header, still showing the previous
+    // conversation's name, never names the new one.
+    const source = headerNameControl(doc);
+    const stale = read !== null && lastConversation !== null && read.id !== lastConversation.id
+      && read.name === lastConversation.name && source !== null && source === lastNameSource;
+    const conversation = read && stale ? { ...read, name: null } : read;
     const name = conversation && conversation.id === request.conversationId ? conversation.name : null;
     diagnose('info', `nom demandé : ${name === null ? 'introuvable' : 'trouvé'}`);
     sendResponse({ ok: true, name });
