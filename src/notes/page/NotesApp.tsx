@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
-import { ArrowDownWideNarrow, FileCode, FileText, LocateFixed, MousePointerClick, NotebookPen, Search, Trash2, X } from 'lucide-react';
+import { ArrowDownWideNarrow, FileArchive, FileCode, FileText, LocateFixed, MousePointerClick, NotebookPen, Search, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useStorage } from '../../popup/useStorage';
@@ -13,6 +13,7 @@ import { activeConversation, displayName, readNotes, readOrder, type Note } from
 import { trackWindowBounds } from '../window';
 import { ArchiveActions } from './ArchiveActions';
 import { downloadFile } from './download';
+import { downloadConversations, exportReport } from './exportConversations';
 import { NoteEditor } from './NoteEditor';
 import { NoteList } from './NoteList';
 import { SelectedMessages } from './SelectedMessages';
@@ -81,6 +82,17 @@ export default function NotesApp() {
       const options = { messages, exportedAt: new Date() };
       const [content, type] = format === 'html' ? [noteDocument(note, options), 'text/html'] : [noteText(note, options), 'text/plain'];
       downloadFile(noteFileName(note, format), new Blob([content], { type }));
+    } catch (cause) {
+      setError(`Export annulé : messages sélectionnés illisibles (${errorMessage(cause)}).`);
+    }
+  };
+
+  /** The documentary ZIP of the note shown: its saved messages and their stored media. */
+  const exportConversation = async (note: Note) => {
+    setError(null);
+    setNotice(null);
+    try {
+      setNotice(exportReport(await downloadConversations([note])));
     } catch (cause) {
       setError(`Export annulé : messages sélectionnés illisibles (${errorMessage(cause)}).`);
     }
@@ -193,6 +205,10 @@ export default function NotesApp() {
                 <Button variant="ghost" size="icon" aria-label="Exporter en TXT" title="Exporter en TXT"
                   onClick={() => void exportNote(current(), 'txt')}>
                   <FileText />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="Exporter la conversation (ZIP)" title="Exporter la conversation et ses médias (ZIP)"
+                  onClick={() => void exportConversation(current())}>
+                  <FileArchive />
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => void run({ type: 'notes:trash', id: selected.id })}>
                   <Trash2 /> Supprimer
