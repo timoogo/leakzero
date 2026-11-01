@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Download, Upload } from 'lucide-react';
+import { Download, FileArchive, Upload } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +21,7 @@ import { planImport, type ImportItem, type ImportResolution, type ImportSummary 
 import { sendNotesCommand } from '../messages';
 import { displayName, type Note } from '../model';
 import { downloadFile } from './download';
+import { downloadConversations, exportReport } from './exportConversations';
 
 const CHOICES: { value: ImportResolution; label: string }[] = [
   { value: 'keep', label: 'Conserver l’existante' },
@@ -79,6 +80,16 @@ export function ArchiveActions({ notes, onError, onDone }: Props) {
     downloadFile(`leakzero-notes-${new Date().toISOString().slice(0, 10)}.zip`, new Blob([zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
   }
 
+  /** Documentary ZIP of every conversation outside the trash, with their stored media. */
+  async function exportConversations() {
+    onError(null);
+    try {
+      onDone(exportReport(await downloadConversations(notes.filter((note) => note.trashedAt === null))));
+    } catch (cause) {
+      onError(`Export annulé : messages sélectionnés illisibles (${cause instanceof Error ? cause.message : String(cause)}).`);
+    }
+  }
+
   async function read(file: File) {
     onError(null);
     try {
@@ -125,6 +136,7 @@ export function ArchiveActions({ notes, onError, onDone }: Props) {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Button variant="ghost" size="sm" className="w-full justify-start px-2" onClick={() => void exportConversations()}><FileArchive /> Exporter les conversations et médias (ZIP)</Button>
       <Button variant="ghost" size="sm" className="w-full justify-start px-2" onClick={() => input.current?.click()}><Upload /> Importer une archive</Button>
       <input
         ref={input}

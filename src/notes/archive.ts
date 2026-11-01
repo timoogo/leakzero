@@ -23,9 +23,9 @@ export class ArchiveError extends Error {
 }
 
 const ENTITIES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => ENTITIES[char]);
+export const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => ENTITIES[char]);
 
-function slug(text: string): string {
+export function slug(text: string): string {
   return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }
 

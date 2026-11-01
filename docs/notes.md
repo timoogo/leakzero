@@ -65,6 +65,24 @@ IndexedDB au moment de l'export (`notes:selectedMessages`) : si la lecture écho
 avec un message d'erreur plutôt que produit sans eux. Ils sont hors de `<main id="note">` et ne sont
 donc jamais réimportés dans le texte d'une fiche.
 
+**Export documentaire (conversations et médias)** : **Exporter la conversation (ZIP)** (barre de la fiche)
+ou **Exporter les conversations et médias (ZIP)** (toutes les fiches hors corbeille). Archive
+`LeakZero-export-<date>.zip`, non réimportable, lisible hors ligne :
+`conversations/<nom>-<8 premiers caractères de l'id de la fiche>/conversation.html`, `conversation.txt` et
+`medias/photo_001.jpg`, `video_001.mp4`… Le dossier ne contient que `[a-z0-9-]` (deux conversations
+homonymes restent distinctes ; suffixe `-2` en cas de collision restante). La page HTML présente la note
+puis les messages enregistrés dans l'ordre de la fiche, avec leurs métadonnées, et des liens relatifs
+vers `medias/` ; tout est échappé, la CSP interdit script et ressource, rien n'est intégré (ni image, ni
+lecteur). Le TXT donne les mêmes messages et les chemins des médias. Les fichiers sont ceux de LeakZero,
+octet pour octet, extension selon leur format réel : pour une image, l'aperçu copié à la sélection
+(JPEG réduit, la seule copie détenue) ; pour une vidéo, le fichier original stocké (HEVC conservé dans son
+MP4, stocké sans recompression dans le ZIP). Un fichier commun à plusieurs messages n'est écrit qu'une fois
+par conversation. Un média non capturé (ou une vidéo illisible) est nommé « non capturée » / « non
+enregistrée », sans fichier ni lien, compté dans l'en-tête, et l'export est annoncé « incomplet ». Les
+messages sont lus comme pour les autres exports (`notes:selectedMessages`, export annulé si illisibles) ;
+les vidéos sont lues par la page Notes directement dans la base IndexedDB de l'extension (même origine,
+lecture seule : le service worker reste le seul écrivain). Rien n'est demandé à Snapchat.
+
 **Import** : **Importer une archive** (ZIP exporté par LeakZero). L'archive est entièrement vérifiée et
 son contenu affiché avant toute écriture. En cas de conflit (même fiche ou même conversation) :
 **Conserver l'existante** (par défaut), **Remplacer** (garde l'identifiant et la conversation de la
@@ -108,7 +126,7 @@ service worker (`notes:storeVideo`), qui le vérifie à nouveau et l'enregistre 
 La sélection est enregistrée d'abord : une vidéo qui ne peut pas être capturée (adresse expirée, flux
 MediaSource, fichier trop gros, disque plein) est signalée dans la console de l'onglet (raison seule,
 jamais l'adresse ni le contenu) et le message reste sélectionné sans elle. Les vidéos stockées ne sont
-pas encore affichées ni exportées.
+pas affichées ; elles figurent dans l'export documentaire.
 
 **Visionneuse.** Un clic sur une miniature (ou une vignette vidéo) ouvre un dialogue modal au-dessus de la
 fiche : le média en grand, proportions conservées, ajusté à la fenêtre ; « 2 / 3 », boutons et flèches
@@ -135,6 +153,7 @@ partie du texte de la fiche ; elle figure dans ses exports (voir **Export**).
 | `src/notes/page/` (`NotesApp`, `NoteList`, `TrashList`, `NoteEditor`, `ArchiveActions`) | fenêtre Notes | page |
 | `src/notes/follow.ts`, `list.ts`, `autosave.ts` | suivi, tri, sauvegarde différée (fonctions pures) | page |
 | `src/notes/content.ts`, `archive.ts` | schéma de l'éditeur (Tiptap), export, import | page |
+| `src/notes/documentExport.ts`, `page/exportConversations.ts` | export documentaire (ZIP des conversations et médias) | page |
 | `src/notes/selection.ts` | mode sélection : lecture des messages, clics, liserés, badge | Snapchat Web |
 | `src/notes/selections.ts` | messages sélectionnés (IndexedDB, seul écrivain) | service worker |
 | `src/notes/video.ts` | capture des vidéos (`blob:` de la page), vérification des octets | Snapchat Web, service worker |
