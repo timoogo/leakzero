@@ -93,19 +93,30 @@ se met à jour dès qu'un message est coché ou décoché sur Snapchat, sans rec
 que la page l'a déjà chargée et décodée (canvas, JPEG réduit à 480 px au plus) : aucune requête, aucun
 média Snapchat téléchargé. Si l'image n'est pas encore chargée ou que le navigateur en interdit la
 lecture (image d'une autre origine), elle est enregistrée sans aperçu et affichée « Image indisponible ».
-Les vidéos ne sont jamais copiées. Dans la fiche, chaque image est à droite de son message, avec un
+Dans la fiche, chaque image est à droite de son message, avec un
 interrupteur **Spoiler** enregistré dans IndexedDB (`notes:setSpoiler`, par image). Une image spoiler est
 masquée par un bloc « Image masquée — spoiler » ; **Afficher l'image** la révèle sur cet écran seulement,
 jusqu'à **Masquer l'image** ou la réouverture de la page. Les enregistrements antérieurs se lisent sans
 aperçu et sans spoiler.
 
+**Vidéos.** Au moment où un message est sélectionné, le script Snapchat lit l'adresse `blob:` que le
+lecteur de Snapchat tient déjà pour chacune de ses vidéos (`<video src>` ou `<source>`, de l'origine de la
+page uniquement) : `fetch(blob:)` la lit en mémoire, sans requête réseau. Une adresse distante (`https:`)
+n'est jamais demandée. Le fichier doit être une vidéo par ses octets (MP4/QuickTime `ftyp` hors marques
+d'image HEIC/AVIF, WebM), 32 Mio au plus (`MAX_VIDEO_BYTES`, `src/notes/video.ts`). Il est envoyé au
+service worker (`notes:storeVideo`), qui le vérifie à nouveau et l'enregistre tel quel, sans transcodage.
+La sélection est enregistrée d'abord : une vidéo qui ne peut pas être capturée (adresse expirée, flux
+MediaSource, fichier trop gros, disque plein) est signalée dans la console de l'onglet (raison seule,
+jamais l'adresse ni le contenu) et le message reste sélectionné sans elle. Les vidéos stockées ne sont
+pas encore affichées ni exportées.
+
 **Visionneuse.** Un clic sur une miniature (ou une vignette vidéo) ouvre un dialogue modal au-dessus de la
 fiche : le média en grand, proportions conservées, ajusté à la fenêtre ; « 2 / 3 », boutons et flèches
 gauche/droite pour passer d'un média du message à l'autre (images copiées et vidéos ; une image sans
 aperçu n'a rien à montrer) ; Échap ou **Fermer** rend le focus à la miniature. Une image spoiler y reste
-masquée jusqu'à **Afficher l'image**, à chaque ouverture, sans changer son statut enregistré. LeakZero
-n'enregistre aucun fichier vidéo : une vidéo est seulement décrite (ou son aperçu montré s'il existe),
-jamais lue ni téléchargée. Le lecteur HTML5 (contrôles natifs) ne sert qu'à un fichier vidéo local. Elle ne fait pas
+masquée jusqu'à **Afficher l'image**, à chaque ouverture, sans changer son statut enregistré. La
+visionneuse ne lit pas les vidéos stockées : une vidéo y est seulement décrite (ou son aperçu montré s'il
+existe). Le lecteur HTML5 (contrôles natifs) ne sert qu'à un fichier vidéo local. Elle ne fait pas
 partie du texte de la fiche ; elle figure dans ses exports (voir **Export**).
 
 **Désactiver le module** ferme la fenêtre et arrête le suivi et la sélection ; aucune donnée n'est supprimée.
@@ -126,6 +137,7 @@ partie du texte de la fiche ; elle figure dans ses exports (voir **Export**).
 | `src/notes/content.ts`, `archive.ts` | schéma de l'éditeur (Tiptap), export, import | page |
 | `src/notes/selection.ts` | mode sélection : lecture des messages, clics, liserés, badge | Snapchat Web |
 | `src/notes/selections.ts` | messages sélectionnés (IndexedDB, seul écrivain) | service worker |
+| `src/notes/video.ts` | capture des vidéos (`blob:` de la page), vérification des octets | Snapchat Web, service worker |
 | `src/notes/page/SelectedMessages.tsx` | section « Messages sélectionnés » de la fiche | page |
 
 **Communication.** Comme les réglages, l'état est dans `chrome.storage.local`, lu par chaque contexte et
@@ -163,6 +175,16 @@ heure), `author` (dernier `<header>` du groupe), `sentAt` (attribut `datetime` d
 `timeLabel` (son texte), `type` (`text`, `image`, `video`, `media`, `unknown`), `media` (nature et `alt`,
 avatars Bitmoji exclus, jamais le contenu), `links` (http, https, mailto) et `selectedAt`. Absent de la
 page : `null` ou vide. Re-sélectionner un message garde son premier enregistrement.
+
+**Vidéos stockées.** Même base, depuis sa version 2 (la mise à niveau garde les sélections) : magasin
+`videos`, clé SHA-256 du fichier, `{ sha256, bytes (ArrayBuffer, octets d'origine), mime, size, storedAt }` ;
+magasin `videoRefs`, clé `[conversationId, key, media]` (index du média dans le message), `{ sha256, width,
+height, duration, capturedAt }` (`null` quand le lecteur ne les connaissait pas). Un même fichier n'est
+stocké qu'une fois, quel que soit le nombre de sélections ou de messages qui le référencent. Le service
+worker n'accepte une vidéo que d'un onglet affichant sa conversation, pour un message encore sélectionné
+dont ce média est une vidéo. Désélectionner un message supprime ses références, et chaque fichier qui n'est
+plus référencé, dans la même transaction. Le transport est en base64 (la messagerie de Chrome n'accepte
+que du JSON) ; le stockage est binaire.
 
 **Détection.** L'identifiant vient uniquement de l'URL `/web/<uuid>` : sans UUID, aucune fiche n'est
 créée (jamais de clé par nom, donc deux conversations homonymes restent distinctes). Le nom vient de
@@ -246,6 +268,15 @@ Limites : 1 Mo de HTML par fiche ; `chrome.storage.local` est limité à 10 Mo a
 - Colonne de sélection : vérifiée seulement sur géométrie simulée. Si un message affiché touche les deux
   marges de la liste et que la conversation n'a pas de place autour, aucune colonne n'est libre (signalé,
   voir plus haut). Deux messages de moins de 18 px de haut, collés, peuvent avoir des cases qui se touchent.
+- Vidéos : l'adresse `blob:` n'existe que tant que la page la garde ; après un rechargement, une fermeture
+  ou le recyclage du lecteur par Snapchat, elle est révoquée et la vidéo n'est plus capturable (resélection
+  sans effet tant que le lecteur n'a pas rechargé la vidéo). Une vidéo jouée par MediaSource (adresse
+  `blob:` d'un flux, pas d'un fichier) n'est pas lisible. Seule une vidéo dont l'élément `<video>` est dans
+  le message au moment de la sélection est capturée : si Snapchat ne crée le lecteur qu'à l'ouverture,
+  ouvrir la vidéo puis sélectionner le message. Le codec n'est pas vérifié : une vidéo HEVC (`hvc1`) est
+  stockée telle quelle même si Chrome (Linux) ne sait pas la lire ; `width`, `height` et `duration` sont
+  alors souvent `null`. Une fiche supprimée définitivement garde ses messages sélectionnés et leurs vidéos
+  (comme avant ce lot).
 - Les messages sélectionnés s'affichent en clair dans Notes, y compris les numéros de téléphone qu'ils
   contenaient s'ils n'étaient pas masqués sur Snapchat au moment de la sélection : la protection des
   numéros ne s'applique pas aux pages de l'extension.
