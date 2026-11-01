@@ -4,6 +4,7 @@ import { asName, CLOSE_CHAT, readConversation } from './detect';
 import { MAX_MESSAGE_TEXT, NOTES_ENABLED, NotesKeys, selectionTarget } from './keys';
 import { sendNotesCommand } from './messages';
 import { imagePreviewSchema, type ImagePreview, type Message } from './model';
+import { captureVideo, videoSource, type VideoSource } from './video';
 
 // Message selection on Snapchat Web. Like detect.ts, only structural and semantic anchors are used, never
 // Snapchat's generated classes or ids:
@@ -155,6 +156,38 @@ export function withPreviews(element: Element, message: Message): Message {
       ? { ...item, preview: imagePreview(nodes[index] as HTMLImageElement) }
       : item),
   };
+}
+
+/**
+ * The video sources of `message`, by media index: only `<video>` elements of the message itself, read
+ * now, at selection. A video whose source is not a `blob:` URL of the page is left out (never downloaded).
+ */
+export function videoSources(element: Element, message: Message): { media: number; source: VideoSource }[] {
+  const nodes = mediaNodes(element);
+  return message.media.flatMap((item, media) => {
+    const node = nodes[media];
+    const source = item.kind === 'video' && node?.tagName === 'VIDEO' ? videoSource(node as HTMLVideoElement) : null;
+    return source ? [{ media, source }] : [];
+  });
+}
+
+/**
+ * Stores the original files of the videos of a message just selected, one after the other. Never blocks
+ * nor undoes the selection: a video that cannot be captured is reported in the console (why, never its
+ * content nor its address), and the message stays selected without it.
+ */
+export async function storeVideos(message: Message, sources: { media: number; source: VideoSource }[], api: typeof chrome = chrome, debug = false): Promise<void> {
+  const skipped = message.media.filter((item) => item.kind === 'video').length - sources.length;
+  if (skipped > 0) console.warn(`[LeakZero Notes] ${skipped} vidéo(s) non enregistrée(s) : aucune source blob: de la page (vidéo pas encore chargée, ou distante)`);
+  for (const { media, source } of sources) {
+    try {
+      const video = await captureVideo(source);
+      const result = await sendNotesCommand<{ stored: boolean }>({ type: 'notes:storeVideo', conversationId: message.conversationId, key: message.key, media, video }, api);
+      if (debug) console.info(`[LeakZero Notes] vidéo ${media} enregistrée (${video.size} octets, ${video.mime}${result.stored ? '' : ', déjà stockée'})`);
+    } catch (error) {
+      console.warn(`[LeakZero Notes] vidéo ${media} non enregistrée : ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
 /** What `element` shows, without its key. A field Snapchat does not show is null or empty. */
@@ -686,7 +719,11 @@ export function startMessageSelection(doc: Document, api: typeof chrome = chrome
     const command = wasSelected
       ? { type: 'notes:unselect' as const, conversationId: message.conversationId, key: message.key }
       : { type: 'notes:select' as const, message: withPreviews(element, message) };
-    sendNotesCommand(command, api).catch((error: unknown) => {
+    // Read now: the element may show another message once the selection is recorded.
+    const videos = wasSelected ? [] : videoSources(element, message);
+    sendNotesCommand(command, api).then(() => {
+      if (!wasSelected && message.media.some((item) => item.kind === 'video')) return storeVideos(message, videos, api, debugging(doc));
+    }, (error: unknown) => {
       console.warn(`[LeakZero Notes] ${wasSelected ? 'désélection' : 'sélection'} non enregistrée`, error);
       if (conversationId !== id) return;
       if (wasSelected) selected.add(message.key);

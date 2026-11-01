@@ -4,6 +4,7 @@ import { NotesKeys } from './keys';
 import type { NotesResponse } from './messages';
 import { createSelectionStore, type SelectionStore } from './selections';
 import { createNotesStore, NotesStoreError } from './store';
+import { fromBase64, MAX_VIDEO_BASE64, MAX_VIDEO_BYTES, VIDEO_MIME } from './video';
 import { closeNotesWindow } from './window';
 
 /** Pages the Snapchat content script runs on (manifest.config.ts). */
@@ -13,6 +14,16 @@ const id = z.strictObject({ id: noteIdSchema });
 
 const conversationId = z.string().regex(CONVERSATION_ID);
 
+/** A video captured by the Snapchat content script (video.ts): checked again here, bytes included. */
+const capturedVideo = z.strictObject({
+  mime: z.string().regex(VIDEO_MIME),
+  size: z.number().int().min(1).max(MAX_VIDEO_BYTES),
+  data: z.string().max(MAX_VIDEO_BASE64).regex(/^[A-Za-z0-9+/]*={0,2}$/),
+  width: z.number().int().min(1).max(16_384).nullable(),
+  height: z.number().int().min(1).max(16_384).nullable(),
+  duration: z.number().positive().max(86_400).nullable(),
+});
+
 /** Sent by the Snapchat content script (src/content/notes.ts). */
 const contentCommand = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('notes:conversation'), conversation: conversationSchema }),
@@ -20,6 +31,8 @@ const contentCommand = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('notes:select'), message: messageSchema }),
   z.strictObject({ type: z.literal('notes:unselect'), conversationId, key: messageKeySchema }),
   z.strictObject({ type: z.literal('notes:selectedKeys'), conversationId }),
+  // Original file of a video of a selected message (video.ts).
+  z.strictObject({ type: z.literal('notes:storeVideo'), conversationId, key: messageKeySchema, media: z.number().int().min(0).max(49), video: capturedVideo }),
 ]);
 
 /** Sent by the extension's own pages: the popup and the Notes page. */
@@ -140,6 +153,18 @@ export function registerNotesBackground(api: typeof chrome = chrome, selections:
         case 'notes:select': return selections.select(command.message).then(changed).then(() => null);
         case 'notes:unselect': return selections.unselect(command.conversationId, command.key).then(changed).then(() => null);
         case 'notes:selectedKeys': return (await selections.list(command.conversationId)).map((record) => record.key);
+        case 'notes:storeVideo': {
+          const { data, size, ...video } = command.video;
+          let bytes: Uint8Array<ArrayBuffer>;
+          try {
+            bytes = fromBase64(data);
+          } catch {
+            throw new NotesStoreError('Vidéo illisible.');
+          }
+          if (bytes.length !== size) throw new NotesStoreError('Vidéo incomplète.');
+          // Not shown by the Notes page yet: no `selectionChanged`.
+          return selections.storeVideo(command.conversationId, command.key, command.media, bytes, video);
+        }
       }
     }
     const parsed = pageCommand.safeParse(message);
