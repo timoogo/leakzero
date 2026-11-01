@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import { conversationSchema, customNameSchema, MAX_HTML_LENGTH, noteIdSchema, noteSchema, NOTES_ENABLED } from './model';
+import { CONVERSATION_ID, conversationSchema, customNameSchema, MAX_HTML_LENGTH, messageKeySchema, messageSchema, noteIdSchema, noteSchema, NOTES_ENABLED } from './model';
+import { NotesKeys } from './keys';
 import type { NotesResponse } from './messages';
+import { createSelectionStore, type SelectionStore } from './selections';
 import { createNotesStore, NotesStoreError } from './store';
 import { closeNotesWindow } from './window';
 
@@ -9,8 +11,16 @@ const SNAPCHAT_HOSTS = ['www.snapchat.com', 'snapchat.com'];
 
 const id = z.strictObject({ id: noteIdSchema });
 
+const conversationId = z.string().regex(CONVERSATION_ID);
+
 /** Sent by the Snapchat content script (src/content/notes.ts). */
-const contentCommand = z.strictObject({ type: z.literal('notes:conversation'), conversation: conversationSchema });
+const contentCommand = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('notes:conversation'), conversation: conversationSchema }),
+  // Message selection (src/notes/selection.ts).
+  z.strictObject({ type: z.literal('notes:select'), message: messageSchema }),
+  z.strictObject({ type: z.literal('notes:unselect'), conversationId, key: messageKeySchema }),
+  z.strictObject({ type: z.literal('notes:selectedKeys'), conversationId }),
+]);
 
 /** Sent by the extension's own pages: the popup and the Notes page. */
 const pageCommand = z.discriminatedUnion('type', [
@@ -20,6 +30,11 @@ const pageCommand = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('notes:trash'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:restore'), ...id.shape }),
   z.strictObject({ type: z.literal('notes:purge'), ...id.shape }),
+  // Messages selected on Snapchat Web (selections.ts), shown in the note of their conversation.
+  z.strictObject({ type: z.literal('notes:selectedMessages'), conversationId }),
+  z.strictObject({
+    type: z.literal('notes:setSpoiler'), conversationId, key: messageKeySchema, media: z.number().int().min(0).max(49), spoiler: z.boolean(),
+  }),
   z.strictObject({ type: z.literal('notes:setOrder'), order: z.array(noteIdSchema).max(10_000).nullable() }),
   z.strictObject({
     type: z.literal('notes:import'),
@@ -46,6 +61,15 @@ function isSnapchat(url: string | undefined): boolean {
 /** Snapchat Web tabs whose URL shows the conversation: `/web/<uuid>`, with or without www. */
 const conversationTabs = (id: string) => SNAPCHAT_HOSTS.map((host) => `https://${host}/web/${id}*`);
 
+/** Whether the tab that sent a message shows the conversation `id` (`/web/<id>`). */
+function showsConversation(url: string | undefined, id: string): boolean {
+  try {
+    return new URL(url ?? '').pathname.replace(/\/$/, '') === `/web/${id}`;
+  } catch {
+    return false;
+  }
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -54,7 +78,7 @@ function errorMessage(error: unknown): string {
  * Notes side of the service worker. Listeners are registered synchronously at startup so that Chrome
  * can wake the worker for them; all state lives in chrome.storage.local.
  */
-export function registerNotesBackground(api: typeof chrome = chrome): void {
+export function registerNotesBackground(api: typeof chrome = chrome, selections: SelectionStore = createSelectionStore()): void {
   const store = createNotesStore(api);
   const enabled = async () => (await api.storage.local.get(NOTES_ENABLED))[NOTES_ENABLED] === true;
   const requireEnabled = async () => {
@@ -95,15 +119,28 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
     if (sender.id !== api.runtime.id) throw new NotesStoreError('Expéditeur inconnu.');
     const fromExtension = sender.url?.startsWith(api.runtime.getURL('')) === true;
     if (!fromExtension) {
-      // Web pages only ever report the open conversation, and only from Snapchat.
+      // Web pages only ever report the open conversation and select its messages, and only from Snapchat.
       if (!isSnapchat(sender.url)) throw new NotesStoreError('Page non autorisée.');
-      const command = contentCommand.safeParse(message);
-      if (!command.success) throw new NotesStoreError('Conversation invalide.');
+      const parsed = contentCommand.safeParse(message);
+      if (!parsed.success) throw new NotesStoreError('Commande invalide.');
+      const command = parsed.data;
       await requireEnabled();
-      await store.detect(command.data.conversation, sender.tab?.id ?? null);
-      // Temporary diagnostics (Notes detection in real Snapchat Web).
-      console.info(`[LeakZero Notes] conversation ${command.data.conversation.id.slice(0, 8)} enregistrée (onglet ${sender.tab?.id})`);
-      return null;
+      if (command.type === 'notes:conversation') {
+        await store.detect(command.conversation, sender.tab?.id ?? null);
+        // Temporary diagnostics (Notes detection in real Snapchat Web).
+        console.info(`[LeakZero Notes] conversation ${command.conversation.id.slice(0, 8)} enregistrée (onglet ${sender.tab?.id})`);
+        return null;
+      }
+      // A tab only reads and changes the selection of the conversation it shows.
+      const target = command.type === 'notes:select' ? command.message.conversationId : command.conversationId;
+      if (!showsConversation(sender.url, target)) throw new NotesStoreError('Cet onglet n’affiche pas cette conversation.');
+      // Tells the Notes page to reload this conversation's messages.
+      const changed = () => api.storage.local.set({ [NotesKeys.selectionChanged]: { conversationId: target, at: Date.now() } });
+      switch (command.type) {
+        case 'notes:select': return selections.select(command.message).then(changed).then(() => null);
+        case 'notes:unselect': return selections.unselect(command.conversationId, command.key).then(changed).then(() => null);
+        case 'notes:selectedKeys': return (await selections.list(command.conversationId)).map((record) => record.key);
+      }
     }
     const parsed = pageCommand.safeParse(message);
     if (!parsed.success) throw new NotesStoreError('Commande invalide.');
@@ -116,6 +153,12 @@ export function registerNotesBackground(api: typeof chrome = chrome): void {
       case 'notes:trash': return store.trash(command.id);
       case 'notes:restore': return store.restore(command.id);
       case 'notes:purge': return store.purge(command.id);
+      case 'notes:selectedMessages': return selections.list(command.conversationId);
+      case 'notes:setSpoiler':
+        await selections.setSpoiler(command.conversationId, command.key, command.media, command.spoiler);
+        // Other open Notes pages show the new status too.
+        await api.storage.local.set({ [NotesKeys.selectionChanged]: { conversationId: command.conversationId, at: Date.now() } });
+        return null;
       case 'notes:setOrder': return store.setOrder(command.order);
       case 'notes:import': return store.import(command.notes, command.resolutions);
     }

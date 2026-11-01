@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
-import { ArrowDownWideNarrow, FileCode, FileText, LocateFixed, NotebookPen, Search, Trash2, X } from 'lucide-react';
+import { ArrowDownWideNarrow, FileCode, FileText, LocateFixed, MousePointerClick, NotebookPen, Search, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useStorage } from '../../popup/useStorage';
 import { noteDocument, noteFileName, noteText } from '../archive';
+import { readSelectedMessages } from '../selected';
 import { follow, initialFollow } from '../follow';
 import { filterByName, listedNotes, moveNote, trashedNotes } from '../list';
+import { NotesKeys, selectionTarget } from '../keys';
 import { sendNotesCommand } from '../messages';
-import { activeConversation, displayName, readNotes, readOrder } from '../model';
+import { activeConversation, displayName, readNotes, readOrder, type Note } from '../model';
 import { trackWindowBounds } from '../window';
 import { ArchiveActions } from './ArchiveActions';
 import { downloadFile } from './download';
 import { NoteEditor } from './NoteEditor';
 import { NoteList } from './NoteList';
+import { SelectedMessages } from './SelectedMessages';
 import { TrashList } from './TrashList';
 
 const noInitialization = async () => undefined;
@@ -26,7 +29,7 @@ function errorMessage(error: unknown): string {
  * every change to the service worker, which writes them (src/notes/store.ts).
  */
 export default function NotesApp() {
-  const { items, ready, error: storageError } = useStorage(noInitialization);
+  const { items, ready, error: storageError, write } = useStorage(noInitialization);
   const [state, dispatch] = useReducer(follow, null, () => initialFollow(null));
   const [view, setView] = useState<'notes' | 'trash'>('notes');
   const [query, setQuery] = useState('');
@@ -41,6 +44,13 @@ export default function NotesApp() {
   const activeNote = active ? notes.find((note) => note.conversationId === active.conversationId) : undefined;
   const activeId = activeNote?.trashedAt === null ? activeNote.id : null;
   const selected = listed.find((note) => note.id === state.selectedId);
+  /** Conversation whose messages are being selected on Snapchat Web (src/notes/selection.ts). */
+  const selecting = selectionTarget(items[NotesKeys.selecting]);
+  /** Bumped by the service worker each time a message of a conversation is selected or unselected. */
+  const selectionChange = items[NotesKeys.selectionChanged] as { conversationId?: unknown; at?: unknown } | undefined;
+  const selectionVersion = (conversationId: string) =>
+    selectionChange?.conversationId === conversationId && typeof selectionChange.at === 'number' ? selectionChange.at : 0;
+  const selectingShown = selected !== undefined && selected.conversationId !== null && selecting === selected.conversationId;
 
   useEffect(() => {
     if (ready) dispatch({ type: 'active', noteId: activeId });
@@ -61,6 +71,19 @@ export default function NotesApp() {
   const run = (command: Parameters<typeof sendNotesCommand>[0]) => {
     setError(null);
     return sendNotesCommand(command).catch((cause: unknown) => setError(errorMessage(cause)));
+  };
+
+  /** Exports the note shown, with the messages selected in its conversation (as its section shows them). */
+  const exportNote = async (note: Note, format: 'html' | 'txt') => {
+    setError(null);
+    try {
+      const messages = await readSelectedMessages([note.conversationId]);
+      const options = { messages, exportedAt: new Date() };
+      const [content, type] = format === 'html' ? [noteDocument(note, options), 'text/html'] : [noteText(note, options), 'text/plain'];
+      downloadFile(noteFileName(note, format), new Blob([content], { type }));
+    } catch (cause) {
+      setError(`Export annulé : messages sélectionnés illisibles (${errorMessage(cause)}).`);
+    }
   };
 
   if (!ready) return <main className="h-screen" aria-busy="true" />;
@@ -144,6 +167,12 @@ export default function NotesApp() {
             </Button>
           </div>
         )}
+        {selectingShown && (
+          <p role="status" className="m-3 mb-0 rounded-md bg-primary/10 px-3 py-2 text-xs">
+            Sélection en cours : sur Snapchat Web, une case apparaît à côté de chaque message de cette conversation.
+            Cochez les messages à garder ; ils sont enregistrés sur cet ordinateur.
+          </p>
+        )}
         {selected ? (
           <NoteEditor
             key={selected.id}
@@ -151,12 +180,18 @@ export default function NotesApp() {
             onEditingChange={onEditingChange}
             actions={(current) => (
               <>
+                {selected.conversationId !== null && (
+                  <Button variant={selectingShown ? 'default' : 'outline'} size="sm" aria-pressed={selectingShown}
+                    onClick={() => write({ [NotesKeys.selecting]: selectingShown ? null : selected.conversationId })}>
+                    <MousePointerClick /> {selectingShown ? 'Terminer la sélection' : 'Sélectionner des messages'}
+                  </Button>
+                )}
                 <Button variant="ghost" size="icon" aria-label="Exporter en HTML" title="Exporter en HTML"
-                  onClick={() => downloadFile(noteFileName(selected, 'html'), new Blob([noteDocument(current())], { type: 'text/html' }))}>
+                  onClick={() => void exportNote(current(), 'html')}>
                   <FileCode />
                 </Button>
                 <Button variant="ghost" size="icon" aria-label="Exporter en TXT" title="Exporter en TXT"
-                  onClick={() => downloadFile(noteFileName(selected, 'txt'), new Blob([noteText(current())], { type: 'text/plain' }))}>
+                  onClick={() => void exportNote(current(), 'txt')}>
                   <FileText />
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => void run({ type: 'notes:trash', id: selected.id })}>
@@ -169,6 +204,9 @@ export default function NotesApp() {
           <p className="m-auto max-w-xs p-6 text-center text-muted-foreground">
             {active ? 'Choisissez une fiche dans la liste.' : 'Aucune conversation Snapchat détectée pour l’instant. Ouvrez une conversation sur Snapchat Web ou choisissez une fiche.'}
           </p>
+        )}
+        {selected?.conversationId && (
+          <SelectedMessages key={selected.conversationId} conversationId={selected.conversationId} version={selectionVersion(selected.conversationId)} />
         )}
       </section>
     </main>

@@ -64,7 +64,9 @@ export function fakeChrome(initial: Record<string, unknown> = {}) {
   };
   // runtime messaging: every listener of every context, as in Chrome. Rejects without a receiver.
   const onMessage = fakeEvent<MessageListener>();
-  const self = { sender: { id: 'leakzero-test' } as chrome.runtime.MessageSender };
+  const self: { sender: chrome.runtime.MessageSender; senderFor?: (message: unknown) => chrome.runtime.MessageSender | undefined } = {
+    sender: { id: 'leakzero-test' },
+  };
   const sendMessage = vi.fn((message: unknown) => {
     try {
       assertValid();
@@ -72,7 +74,7 @@ export function fakeChrome(initial: Record<string, unknown> = {}) {
       return Promise.reject(error);
     }
     return new Promise((resolve, reject) => {
-      const sender = structuredClone(self.sender);
+      const sender = structuredClone({ ...(self.senderFor?.(message) ?? self.sender), id: 'leakzero-test' });
       let async = false;
       let answered = false;
       const sendResponse = (response?: unknown) => {
@@ -180,6 +182,10 @@ export function fakeChrome(initial: Record<string, unknown> = {}) {
     /** Who `runtime.sendMessage` reports as the sender (an extension page by default). */
     setSender(sender: chrome.runtime.MessageSender) {
       self.sender = { id: 'leakzero-test', ...sender };
+    },
+    /** Who sent each message, when several contexts talk at once (the Notes page and a Snapchat tab). */
+    setSenderFor(senderFor: (message: unknown) => chrome.runtime.MessageSender | undefined) {
+      self.senderFor = senderFor;
     },
     windows,
     /** The user moves or resizes a window. */

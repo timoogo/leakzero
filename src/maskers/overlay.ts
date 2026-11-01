@@ -203,7 +203,7 @@ function labelSize(box: Box): number {
   return Math.max(6, Math.min(14, Math.floor(fit)));
 }
 
-function clippingAncestors(node: Node): Element[] {
+export function clippingAncestors(node: Node): Element[] {
   const clips: Element[] = [];
   let current: Element | null = node.parentElement;
   while (current) {
@@ -214,7 +214,7 @@ function clippingAncestors(node: Node): Element[] {
   return clips;
 }
 
-function clipRect(clips: readonly Element[]) {
+export function clipRect(clips: readonly Element[]) {
   const clip = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
   for (const element of clips) {
     const rect = element.getBoundingClientRect();

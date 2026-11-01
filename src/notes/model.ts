@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { CONVERSATION_ID, MAX_NAME_LENGTH, NotesKeys } from './keys';
+import { CONVERSATION_ID, MAX_MESSAGE_TEXT, MAX_NAME_LENGTH, NotesKeys } from './keys';
 
-export { CONVERSATION_ID, MAX_NAME_LENGTH, NOTES_ENABLED } from './keys';
+export { CONVERSATION_ID, MAX_MESSAGE_TEXT, MAX_NAME_LENGTH, NOTES_ENABLED } from './keys';
 /** Of the stored HTML; chrome.storage.local holds 10 MB in all. */
 export const MAX_HTML_LENGTH = 1_000_000;
 
@@ -85,3 +85,59 @@ export function activeConversation(items: Record<string, unknown>): ActiveConver
 export function lastActivity(note: Note): number {
   return Math.max(note.lastSeenAt, note.updatedAt);
 }
+
+/** Identity of a message within its conversation (src/notes/selection.ts): fingerprint, then rank among identical ones. */
+export const messageKeySchema = z.string().regex(/^[0-9a-z]{1,16}:\d{1,6}$/);
+const mediaKind = z.enum(['image', 'video']);
+
+/** Longest data URL kept for one image preview (≈ 375 KB of JPEG). */
+export const MAX_PREVIEW_URL = 500_000;
+
+/**
+ * Copy of an image as the page had already loaded and decoded it, made by the content script when the
+ * message is selected (scaled down, JPEG): no request, Snapchat's media are never downloaded again.
+ */
+export const imagePreviewSchema = z.strictObject({
+  dataUrl: z.string().max(MAX_PREVIEW_URL).regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/),
+  width: z.number().int().min(1).max(4096),
+  height: z.number().int().min(1).max(4096),
+});
+export type ImagePreview = z.infer<typeof imagePreviewSchema>;
+
+const mediaSchema = z.strictObject({
+  kind: mediaKind,
+  alt: z.string().min(1).max(1000).nullable(),
+  /** Images only, when the page let it be copied; absent from records made before previews existed. */
+  preview: imagePreviewSchema.nullable().default(null),
+});
+
+/**
+ * A message as read on Snapchat Web when it was selected. Only what the page shows: a field Snapchat
+ * does not show is null or empty, never guessed.
+ */
+export const messageSchema = z.strictObject({
+  conversationId: z.string().regex(CONVERSATION_ID),
+  key: messageKeySchema,
+  /** Visible text, without the sender header nor the time; '' for a media without caption. */
+  text: z.string().max(MAX_MESSAGE_TEXT),
+  /** Sender, from the header of the group of messages. */
+  author: z.string().min(1).max(MAX_NAME_LENGTH).nullable(),
+  /** `datetime` attribute of the message's `<time>`, as Snapchat wrote it. */
+  sentAt: z.string().min(1).max(64).nullable(),
+  /** Visible text of that `<time>` (« 14:02 », « Hier »…). */
+  timeLabel: z.string().min(1).max(MAX_NAME_LENGTH).nullable(),
+  /** `text`, `image`, `video`, `media` (images and videos), or `unknown` (neither text nor media). */
+  type: z.enum(['text', 'image', 'video', 'media', 'unknown']),
+  /** Images and videos of the message (avatars excluded); only an image's preview is kept, never a video. */
+  media: z.array(mediaSchema).max(50),
+  /** Targets of the links of the message. */
+  links: z.array(z.string().min(1).max(2048)).max(50),
+});
+export type Message = z.infer<typeof messageSchema>;
+
+export const selectedMessageSchema = messageSchema.extend({
+  selectedAt: timestamp,
+  /** `spoiler`: the user hides this image by default, in the note and its exports (false in older records). */
+  media: z.array(mediaSchema.extend({ spoiler: z.boolean().default(false) })).max(50),
+});
+export type SelectedMessage = z.infer<typeof selectedMessageSchema>;

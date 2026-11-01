@@ -9,6 +9,8 @@ import { registerNotesBackground } from '../src/notes/background';
 import { NotesKeys } from '../src/notes/keys';
 import { NOTES_ENABLED, readNotes, readOrder } from '../src/notes/model';
 import NotesApp from '../src/notes/page/NotesApp';
+import { IDBFactory } from 'fake-indexeddb';
+import { createSelectionStore } from '../src/notes/selections';
 import { fakeChrome } from './helpers/chrome';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -70,7 +72,8 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'], now: 1_700_000_000_000 });
   storage = fakeChrome({ [NOTES_ENABLED]: true });
   storage.setSender({ url: PAGE });
-  registerNotesBackground(storage.api);
+  // Exports read the selected messages from IndexedDB (none here).
+  registerNotesBackground(storage.api, createSelectionStore(() => new IDBFactory()));
 });
 
 afterEach(() => {
@@ -82,6 +85,27 @@ afterEach(() => {
 });
 
 describe('Notes page', () => {
+  it('starts and ends the message selection of the open note\'s conversation, keeping the selected messages', async () => {
+    await detect(ALICE, 'Alice');
+    await detect(BOB, 'Bob');
+    await render();
+    expect(title()).toBe('Bob');
+    await click(button('Sélectionner des messages'));
+    expect(storage.stored[NotesKeys.selecting]).toBe(BOB);
+    expect(button('Terminer la sélection').getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[role="status"]')!.textContent).toContain('une case apparaît');
+    // Another note: its own conversation is not the one being selected.
+    await click(noteButton('Alice'));
+    expect(button('Sélectionner des messages').getAttribute('aria-pressed')).toBe('false');
+    await click(noteButton('Bob'));
+    // Ended from the badge on Snapchat Web, then from the note.
+    await act(() => storage.externalSet({ [NotesKeys.selecting]: null }));
+    expect(button('Sélectionner des messages').getAttribute('aria-pressed')).toBe('false');
+    await click(button('Sélectionner des messages'));
+    await click(button('Terminer la sélection'));
+    expect(storage.stored[NotesKeys.selecting]).toBeNull();
+  });
+
   it('lists the detected conversations, most recent first, and shows the active one', async () => {
     await detect(ALICE, 'Alice');
     await detect(BOB, 'Bob');
@@ -452,7 +476,9 @@ describe('export and import', () => {
     await render();
     await type('Rappel');
     await click(button('Exporter en HTML'));
+    await vi.waitFor(() => expect(downloads).toHaveLength(1));
     await click(button('Exporter en TXT'));
+    await vi.waitFor(() => expect(downloads).toHaveLength(2));
     expect(downloads.map((download) => download.name)).toEqual([expect.stringMatching(/^alice-.+\.html$/), expect.stringMatching(/^alice-.+\.txt$/)]);
     expect(await downloads[0].blob.text()).toContain('<main id="note"><p>Rappel</p></main>');
     expect(await downloads[1].blob.text()).toContain('Rappel');
@@ -466,11 +492,13 @@ describe('export and import', () => {
     await flush();
     await click(button('Exporter tout (ZIP)'));
     await click(button('Exporter'));
+    await vi.waitFor(() => expect(downloads).toHaveLength(1));
     expect(downloads[0].name).toMatch(/^leakzero-notes-\d{4}-\d{2}-\d{2}\.zip$/);
     expect(JSON.parse((await zipEntries(downloads[0].blob))['manifest.json']).notes.map((note: { name: string }) => note.name)).toEqual(['Alice']);
     await click(button('Exporter tout (ZIP)'));
     await click(document.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Inclure la corbeille"]')!);
     await click(button('Exporter'));
+    await vi.waitFor(() => expect(downloads).toHaveLength(2));
     expect(JSON.parse((await zipEntries(downloads[1].blob))['manifest.json']).notes).toHaveLength(2);
   });
 

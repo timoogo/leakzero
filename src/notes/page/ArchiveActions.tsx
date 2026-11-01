@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { exportArchive, parseArchive } from '../archive';
+import { readSelectedMessages } from '../selected';
 import { planImport, type ImportItem, type ImportResolution, type ImportSummary } from '../importing';
 import { sendNotesCommand } from '../messages';
 import { displayName, type Note } from '../model';
@@ -65,8 +66,16 @@ export function ArchiveActions({ notes, onError, onDone }: Props) {
   const trashed = notes.filter((note) => note.trashedAt !== null).length;
   const conflicts = plan?.filter((item) => item.conflict) ?? [];
 
-  function exportAll() {
-    const zip = exportArchive(notes, { includeTrash });
+  async function exportAll() {
+    const exported = notes.filter((note) => includeTrash || note.trashedAt === null);
+    let messages;
+    try {
+      // Each note gets the messages selected in its own conversation.
+      messages = await readSelectedMessages(exported.map((note) => note.conversationId));
+    } catch (cause) {
+      return onError(`Export annulé : messages sélectionnés illisibles (${cause instanceof Error ? cause.message : String(cause)}).`);
+    }
+    const zip = exportArchive(exported, { includeTrash, messages });
     downloadFile(`leakzero-notes-${new Date().toISOString().slice(0, 10)}.zip`, new Blob([zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
   }
 
@@ -111,7 +120,7 @@ export function ArchiveActions({ notes, onError, onDone }: Props) {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={exportAll}>Exporter</AlertDialogAction>
+            <AlertDialogAction onClick={() => void exportAll()}>Exporter</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { ArchiveError, exportArchive, noteDocument, noteFileName, parseArchive } from '../src/notes/archive';
+import { ArchiveError, exportArchive, noteDocument, noteFileName, noteText, parseArchive } from '../src/notes/archive';
 import { planImport } from '../src/notes/importing';
-import type { Note } from '../src/notes/model';
+import type { Note, SelectedMessage } from '../src/notes/model';
 
 const ALICE = '0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
 const BOB = '2c1c2d3e-4f50-4617-8293-a4b5c6d7e8f9';
@@ -62,7 +62,7 @@ describe('ZIP export', () => {
       html: 'html/alice-3-id-alice.html', txt: 'txt/alice-3-id-alice.txt',
     });
     expect(content['html/alice-3-id-alice.html']).toContain('<h2>Sujet</h2>');
-    expect(content['txt/alice-3-id-alice.txt']).toBe('Alice <3\n========\n\n## Sujet\n\ngras\n');
+    expect(content['txt/alice-3-id-alice.txt']).toMatch(/^Alice <3\n========\nNotes LeakZero · exportée le \d\d\/\d\d\/\d{4} \d\d:\d\d:\d\d\n\n## Sujet\n\ngras\n$/);
     expect(Object.keys(content)).toHaveLength(5);
   });
 
@@ -137,5 +137,105 @@ describe('import plan', () => {
       ['id-bob-2', 'other'],
       ['new', null],
     ]);
+  });
+});
+
+function selected(conversationId: string, key: string, extra: Partial<SelectedMessage> = {}): SelectedMessage {
+  return {
+    conversationId, key, text: '', author: null, sentAt: null, timeLabel: null, type: 'text', media: [], links: [],
+    selectedAt: Date.UTC(2026, 9, 31, 9, 30), ...extra,
+  };
+}
+
+const aliceMessages = [
+  selected(ALICE, 'a:0', { text: 'Salut toi\nà demain', author: 'Alice', sentAt: '2026-10-30T14:02:00.000Z', timeLabel: '14:02' }),
+  selected(ALICE, 'b:0', { type: 'image', media: [{ kind: 'image', alt: 'Photo', preview: null, spoiler: false }], timeLabel: 'Hier' }),
+  selected(ALICE, 'c:0', { text: 'le lien', author: 'Moi', links: ['https://example.com/a?x=1&y=2'] }),
+];
+const AT = new Date('2026-11-01T10:15:30.000Z');
+const bobMessages = [selected(BOB, 'd:0', { text: 'Message de Bob', author: 'Bob', type: 'unknown' })];
+const byConversation = new Map([[ALICE, aliceMessages], [BOB, bobMessages]]);
+
+/** The « Messages sélectionnés » section of an exported page, parsed inertly. */
+function section(html: string) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return { doc, section: doc.querySelector('section#selected-messages') };
+}
+
+describe('selected messages in exports', () => {
+  it('adds every selected message of the conversation to the HTML page, after the note, with what is known of it', () => {
+    const { doc, section: found } = section(noteDocument(alice, { messages: byConversation, exportedAt: AT }));
+    expect(found!.querySelector('h2')!.textContent).toBe('Messages sélectionnés (3)');
+    const items = [...found!.querySelectorAll('li')].map((item) => [...item.querySelectorAll('p')].map((p) => p.textContent));
+    expect(items[0]).toEqual([expect.stringMatching(/^Alice · Envoyé : 30\/10\/2026 \d\d:02 · Texte · Sélectionné le 31\/10\/2026 \d\d:30$/), 'Salut toi\nà demain']);
+    // Only what Snapchat showed: no author, the time label when there is no `datetime`.
+    expect(items[1]).toEqual([expect.stringMatching(/^Envoyé : Hier · Image · Sélectionné le /), 'Image (Photo)', 'Image indisponible hors ligne']);
+    expect(items[2]).toEqual([expect.stringMatching(/^Moi · Texte · Sélectionné le /), 'le lien', 'Liens : https://example.com/a?x=1&y=2']);
+    // The note itself is unchanged, and the messages are not part of it.
+    expect(doc.querySelector('main#note')!.innerHTML).toBe('<h2>Sujet</h2><p><strong>gras</strong></p>');
+    expect(doc.querySelector('main#note section')).toBeNull();
+  });
+
+  it('adds them to the TXT copy too', () => {
+    const text = noteText(alice, { messages: byConversation, exportedAt: AT });
+    expect(text.startsWith(noteText(alice, { exportedAt: AT }))).toBe(true);
+    expect(text).toContain('Messages sélectionnés (3)\n-------------------------\n\n1. Alice · Envoyé : 30/10/2026');
+    expect(text).toContain('   Salut toi\n   à demain\n\n2. Envoyé : Hier · Image · Sélectionné le ');
+    expect(text).toContain('   Image (Photo)');
+    expect(text).toContain('3. Moi · Texte · Sélectionné le ');
+    expect(text).toContain('   Liens : https://example.com/a?x=1&y=2\n');
+    expect(text).not.toContain('Message de Bob');
+  });
+
+  it('escapes every field: a message can neither inject markup nor run anything', () => {
+    const hostile = selected(ALICE, 'e:0', {
+      text: '<script>alert(1)</script><img src=x onerror=alert(2)> & "q" \'s\'',
+      author: '<b>Mallory</b>',
+      timeLabel: '<i>14:00</i>',
+      media: [{ kind: 'video', alt: '"><svg onload=alert(3)>', preview: null, spoiler: false }],
+      links: ['javascript:alert(4)"><a href="x'],
+      type: 'media',
+    });
+    const html = noteDocument(alice, { messages: new Map([[ALICE, [hostile]]]), exportedAt: AT });
+    const { section: found } = section(html);
+    expect(found!.querySelectorAll('script, img, svg, b, i, a')).toHaveLength(0);
+    expect(found!.textContent).toContain('<script>alert(1)</script><img src=x onerror=alert(2)> & "q" \'s\'');
+    expect(found!.textContent).toContain('<b>Mallory</b> · Envoyé : <i>14:00</i> · Médias');
+    expect(found!.textContent).toContain('Vidéo ("><svg onload=alert(3)>)');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('<script>');
+  });
+
+  it('leaves the export of a conversation without selected messages exactly as before', () => {
+    const none = new Map([[ALICE, []]]);
+    expect(noteDocument(alice, { messages: none, exportedAt: AT })).toBe(noteDocument(alice, { exportedAt: AT }));
+    expect(noteText(alice, { messages: none, exportedAt: AT })).toBe(noteText(alice, { exportedAt: AT }));
+    expect(noteDocument(alice, { messages: none, exportedAt: AT })).not.toContain('selected-messages');
+    expect(noteText(alice, { messages: byConversation, exportedAt: AT })).not.toBe(noteText(alice, { exportedAt: AT }));
+    // A note detached from its conversation has none either.
+    expect(noteDocument({ ...alice, conversationId: null }, { messages: byConversation, exportedAt: AT })).not.toContain('selected-messages');
+  });
+
+  it('gives each note of the ZIP the messages of its own conversation only', () => {
+    const carol = note('id-carol', { conversationId: '3d1c2d3e-4f50-4617-8293-a4b5c6d7e8f9', name: 'Carol' });
+    const zip = files(exportArchive([alice, bob, carol], { includeTrash: false, messages: byConversation }));
+    const page = (name: string) => zip[Object.keys(zip).find((path) => path.startsWith(`html/${name}-`))!];
+    const txt = (name: string) => zip[Object.keys(zip).find((path) => path.startsWith(`txt/${name}-`))!];
+    expect(section(page('alice-3')).section!.querySelectorAll('li')).toHaveLength(3);
+    expect(page('alice-3')).not.toContain('Message de Bob');
+    expect(section(page('bob')).section!.textContent).toContain('Messages sélectionnés (1)Bob · Type inconnu');
+    expect(page('bob')).not.toContain('Salut toi');
+    expect(txt('alice-3')).toContain('Salut toi');
+    expect(txt('bob')).toContain('Message de Bob');
+    expect(txt('bob')).not.toContain('Salut toi');
+    expect(page('carol')).not.toContain('selected-messages');
+    // The manifest, and so the import, are unchanged.
+    expect(Object.keys(manifestOf(exportArchive([alice], { includeTrash: false, messages: byConversation })).notes[0]).sort())
+      .toEqual(Object.keys(manifestOf(exportArchive([alice], { includeTrash: false })).notes[0]).sort());
+  });
+
+  it('never imports the selected messages back into the note', () => {
+    const [imported] = parseArchive(exportArchive([alice], { includeTrash: false, messages: byConversation }));
+    expect(imported.html).toBe(alice.html);
   });
 });

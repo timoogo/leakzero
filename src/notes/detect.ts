@@ -9,7 +9,7 @@ import type { Conversation } from './model';
 
 const PATH = /^\/web\/([^/]+)\/?$/;
 /** Closes the open conversation: only its header has it. */
-const CLOSE_CHAT = 'button[title="Close Chat"]';
+export const CLOSE_CHAT = 'button[title="Close Chat"]';
 /** The conversation menu of that header, labelled with the conversation name. */
 const NAME_CONTROL = '[aria-haspopup="listbox"]';
 /** How far above « Close Chat » the header may extend. */
@@ -31,7 +31,7 @@ function diagnose(level: 'info' | 'warn', message: string) {
   console[level](`[LeakZero Notes] ${message}`);
 }
 
-function asName(text: string | null | undefined): string | null {
+export function asName(text: string | null | undefined): string | null {
   const name = (text ?? '').replace(/\s+/g, ' ').trim();
   return name.length > 0 && name.length <= MAX_NAME_LENGTH && name !== 'Snapchat' ? name : null;
 }
