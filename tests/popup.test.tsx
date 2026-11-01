@@ -116,7 +116,7 @@ describe('accordions', () => {
   it('lists the modules in order with an informative state, all controls inside', async () => {
     fakeChrome(MIGRATED);
     await render();
-    expect([...document.querySelectorAll('[data-module]')].map((node) => node.getAttribute('data-module'))).toEqual(['phone', 'media']);
+    expect([...document.querySelectorAll('[data-module]')].map((node) => node.getAttribute('data-module'))).toEqual(['phone', 'media', 'notes']);
     expect(status('phone')).toBe('Actif');
     expect(trigger('phone').querySelector('[role="switch"]')).toBeNull();
     expect(control('phone-enabled')).toBeNull();
@@ -149,6 +149,40 @@ describe('accordions', () => {
     expect(storage.stored[MEDIA]).toBe(true);
     expect(status('media')).toBe('Actif');
     expect(warning()).toBeUndefined();
+  });
+});
+
+describe('Notes module', () => {
+  const NOTES = settingKey('notes', 'enabled');
+
+  it('shows "Ouvrir Notes" only while the module is enabled, and opens the floating window itself', async () => {
+    // No service worker listening (stopped, crashed or outdated): opening does not depend on it.
+    const storage = fakeChrome(MIGRATED);
+    await render();
+    await open('notes');
+    expect(buttons('Ouvrir Notes')).toHaveLength(0);
+    await click(control('notes-enabled') as HTMLButtonElement);
+    expect(storage.stored[NOTES]).toBe(true);
+    await click(button('Ouvrir Notes'));
+    await flush();
+    expect([...storage.windows.values()]).toEqual([expect.objectContaining({ type: 'popup', url: 'chrome-extension://leakzero-test/notes.html' })]);
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('reports an error when the window cannot be opened', async () => {
+    const storage = fakeChrome({ ...MIGRATED, [NOTES]: true, [StorageKeys.openSections]: ['notes'] });
+    vi.mocked(storage.api.windows.create).mockRejectedValue(new Error('boom'));
+    await render();
+    await click(button('Ouvrir Notes'));
+    await flush();
+    expect(document.querySelector('[role="alert"]')!.textContent).toContain('boom');
+  });
+
+  it('is not a protection: "Aucune protection active" stays while only Notes is on', async () => {
+    fakeChrome({ ...MIGRATED, [PHONE]: false, [MEDIA]: false, [NOTES]: true });
+    await render();
+    expect(status('notes')).toBe('Actif');
+    expect(warning()).toBeDefined();
   });
 });
 

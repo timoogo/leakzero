@@ -19,5 +19,11 @@ export default defineManifest({
     run_at: 'document_start',
     all_frames: true,
     match_about_blank: true,
+  }, {
+    // Notes module: reports the open Snapchat conversation (id from the URL, name from its header).
+    // Every Snapchat page: Snapchat Web may be reached by an in-page navigation, without a page load.
+    matches: ['https://www.snapchat.com/*', 'https://snapchat.com/*'],
+    js: ['src/content/notes.ts'],
+    run_at: 'document_idle',
   }],
 });

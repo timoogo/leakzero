@@ -1,0 +1,17 @@
+# Engine: src/notes/ (service worker store, window, Notes page) and src/content/notes.ts (Snapchat
+# conversation detection). Not a protection: absent from PROTECTION_FIELDS (src/shared/settings.ts).
+id: notes
+title: Notes
+description: Une fiche de notes par conversation Snapchat
+icon: notebook-pen
+order: 30
+
+settings:
+  - id: enabled
+    type: switch
+    label: Activer Notes
+    description: Suit la conversation Snapchat ouverte et lui associe une fiche. Les notes restent sur cet ordinateur ; les désactiver ne supprime rien.
+    default: false
+    primary: true
+
+component: OpenNotesButton
